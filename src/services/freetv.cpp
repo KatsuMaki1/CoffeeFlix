@@ -8,6 +8,7 @@
 #include "core/store.hpp"
 #include "logger/logger.hpp"
 #include "services/animesama_text.hpp"
+#include "services/dlna.hpp"
 
 namespace freetv {
 
@@ -121,52 +122,110 @@ void set_freebox_url(const std::string& url) { store::set_str(STORE_FREEBOX_URL,
 
 ChannelList get_freebox_channels() {
     ChannelList res;
-    std::vector<std::string> candidates;
+
+    // 1. If user explicitly set a custom HTTP M3U playlist URL, load HTTP streams from it.
     std::string custom = animesama::txt::trim(store::get_str(STORE_FREEBOX_URL, ""));
-    if (!custom.empty()) candidates.push_back(custom);
-    for (const char* def : DEFAULT_FREEBOX_URLS) {
-        if (custom != def) candidates.push_back(def);
-    }
-
-    std::string body;
-    std::string last_err;
-    for (const auto& u : candidates) {
-        http::Response r = http::get(u, {}, 6);
+    if (!custom.empty()) {
+        http::Response r = http::get(custom, {}, 8);
         if (r.ok() && r.body.find("#EXTM3U") != std::string::npos) {
-            body = std::move(r.body);
-            break;
+            std::istringstream iss(r.body);
+            std::string line, cur_name;
+            while (std::getline(iss, line)) {
+                line = animesama::txt::trim(line);
+                if (line.empty()) continue;
+                if (animesama::txt::starts_with(line, "#EXTINF:")) {
+                    size_t comma = line.rfind(',');
+                    cur_name = (comma != std::string::npos) ? animesama::txt::trim(line.substr(comma + 1)) : "Chaine";
+                } else if (line[0] != '#' && animesama::txt::starts_with(line, "http")) {
+                    Channel ch;
+                    ch.id = line;
+                    ch.name = cur_name.empty() ? line : cur_name;
+                    ch.group = "Freebox TV";
+                    ch.url = line;
+                    ch.is_freebox = true;
+                    res.items.push_back(std::move(ch));
+                    cur_name.clear();
+                }
+            }
+            if (!res.items.empty()) return res;
         }
-        last_err = r.error.empty() ? ("HTTP " + std::to_string(r.status)) : r.error;
     }
 
-    if (body.empty()) {
-        res.error = "Freebox TV inaccessible (" + last_err + "). Verifie que la Wii U est sur le Wi-Fi de ta Freebox.";
+    // 2. Auto-discover Freebox DLNA/UPnP server (same HTTP MPEG-TS method used by PS3, no RTSP needed!)
+    std::vector<dlna::Server> servers = dlna::known_servers();
+    auto find_freebox = [](const std::vector<dlna::Server>& list) -> const dlna::Server* {
+        for (const auto& s : list) {
+            if (animesama::txt::contains_ci(s.name, "freebox") || animesama::txt::contains_ci(s.model, "freebox")) {
+                return &s;
+            }
+        }
+        return nullptr;
+    };
+
+    const dlna::Server* fbx = find_freebox(servers);
+    dlna::Servers discovered;
+    if (!fbx) {
+        discovered = dlna::discover(2500);
+        fbx = find_freebox(discovered.items);
+    }
+
+    if (!fbx) {
+        res.error = "Freebox introuvable en DLNA/UPnP sur le reseau local. Verifie que UPnP AV est active sur ta Freebox.";
         return res;
     }
 
-    std::istringstream iss(body);
-    std::string line;
-    std::string cur_name;
-    while (std::getline(iss, line)) {
-        line = animesama::txt::trim(line);
-        if (line.empty()) continue;
-        if (animesama::txt::starts_with(line, "#EXTINF:")) {
-            size_t comma = line.rfind(',');
-            cur_name = (comma != std::string::npos) ? animesama::txt::trim(line.substr(comma + 1)) : "Chaine Freebox";
-        } else if (line[0] != '#') {
-            Channel ch;
-            ch.id = line;
-            ch.name = cur_name.empty() ? line : cur_name;
-            ch.group = "Freebox TV";
-            ch.url = line;
-            ch.is_freebox = true;
-            res.items.push_back(std::move(ch));
-            cur_name.clear();
+    dlna::Listing root = dlna::browse(*fbx, "0");
+    if (!root.ok) {
+        res.error = root.error.empty() ? "Impossible de lire le serveur DLNA Freebox" : root.error;
+        return res;
+    }
+
+    auto collect_videos = [&](const dlna::Listing& lst) {
+        for (const auto& it : lst.items) {
+            if (it.kind == dlna::VIDEO && animesama::txt::starts_with(it.url, "http")) {
+                Channel ch;
+                ch.id = it.url;
+                ch.name = it.title;
+                ch.group = "Freebox TV (DLNA)";
+                ch.url = it.url;
+                ch.image_url = it.art;
+                ch.is_freebox = true;
+                res.items.push_back(std::move(ch));
+            }
+        }
+    };
+
+    // Look for TV / Television / Chaines folder in root
+    std::string tv_id;
+    for (const auto& it : root.items) {
+        if (it.kind != dlna::CONTAINER) continue;
+        std::string low = animesama::txt::lower(it.title);
+        if (low.find("tv") != std::string::npos || low.find("vision") != std::string::npos ||
+            low.find("chaine") != std::string::npos || low.find("chaîne") != std::string::npos) {
+            tv_id = it.id;
+            break;
         }
     }
 
-    if (res.items.empty()) res.error = "Playlist Freebox vide";
-    log_message(LOG_OK, "FreeTV", "Loaded %d Freebox channel(s)", (int)res.items.size());
+    if (!tv_id.empty()) {
+        dlna::Listing tv_lst = dlna::browse(*fbx, tv_id);
+        collect_videos(tv_lst);
+        if (res.items.empty()) {
+            // Browse sub-containers one level deeper (e.g. "Toutes les chaines" / "TNT")
+            for (const auto& sub : tv_lst.items) {
+                if (sub.kind == dlna::CONTAINER) {
+                    dlna::Listing sub_lst = dlna::browse(*fbx, sub.id);
+                    collect_videos(sub_lst);
+                    if (!res.items.empty()) break;
+                }
+            }
+        }
+    }
+
+    if (res.items.empty()) {
+        res.error = "Aucune chaine TV HTTP trouvee sur le serveur DLNA Freebox (" + fbx->name + ").";
+    }
+    log_message(LOG_OK, "FreeTV", "Loaded %d Freebox DLNA channel(s) from %s", (int)res.items.size(), fbx->name.c_str());
     return res;
 }
 
