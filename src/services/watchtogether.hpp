@@ -25,6 +25,7 @@ struct SyncEvent {
     std::string extra;
     std::string url;
     std::string referer;
+    std::string user_agent;
     double pos = 0.0;
     bool paused = false;
     bool has_video = true;

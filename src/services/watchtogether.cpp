@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <mutex>
+#include <sstream>
 #include <thread>
 
 #include "core/http.hpp"
@@ -113,6 +114,7 @@ void handle_line(const std::string& line, std::string& since) {
     se.extra = jstr(payload, "extra");
     se.url = jstr(payload, "url");
     se.referer = jstr(payload, "referer");
+    se.user_agent = jstr(payload, "ua");
     se.pos = json_number_value(json_object_get(payload, "pos"));
     se.paused = json_is_true(json_object_get(payload, "paused"));
     se.has_video = !json_is_false(json_object_get(payload, "has_video"));
@@ -129,28 +131,27 @@ void handle_line(const std::string& line, std::string& since) {
 }
 
 void poll_loop(std::string code) {
-    std::string since = "10s";
+    std::string since = "15s";
     while (g_running) {
-        std::string buf;
         http::Request req;
-        req.url = "https://ntfy.sh/cfwt-" + code + "/json?since=" + since;
-        req.timeout = 60;
+        req.url = "https://ntfy.sh/cfwt-" + code + "/json?poll=1&since=" + since;
+        req.timeout = 5;
         req.cancel = &g_stop;
         req.headers.push_back({"User-Agent", "CoffeeFlix/1.0"});
-        req.on_data = [&buf, &since](const http::Response&, const char* data, size_t size) -> bool {
-            if (!g_running) return false;
-            buf.append(data, size);
-            size_t nl = 0;
-            while ((nl = buf.find('\n')) != std::string::npos) {
-                std::string line = buf.substr(0, nl);
-                buf.erase(0, nl + 1);
+        http::Response r = http::perform(req);
+        if (!g_running) break;
+
+        if (r.ok() && !r.body.empty()) {
+            std::istringstream iss(r.body);
+            std::string line;
+            while (std::getline(iss, line)) {
                 handle_line(line, since);
             }
-            return g_running.load();
-        };
-        http::perform(req);
-        if (!g_running) break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        }
+
+        for (int i = 0; i < 7 && g_running; i++) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
     }
 }
 
@@ -262,6 +263,7 @@ void on_local_playback(const player::Source& src, double pos, bool paused, bool 
 
         std::string sid = src.id.empty() ? src.url : src.id;
         if (sid.empty()) return;
+        if (src.service != "youtube" && src.url.empty()) return;
 
         double dt_sent = now - g_last_sent_at;
         double expected_pos = g_last_sent_paused ? g_last_sent_pos : (g_last_sent_pos + dt_sent);
@@ -296,6 +298,7 @@ void on_local_playback(const player::Source& src, double pos, bool paused, bool 
         json_object_set_new(obj, "extra", json_string(src.extra.c_str()));
         json_object_set_new(obj, "url", json_string(src.url.c_str()));
         json_object_set_new(obj, "referer", json_string(referer.c_str()));
+        json_object_set_new(obj, "ua", json_string(src.user_agent.c_str()));
         json_object_set_new(obj, "pos", json_real(pos));
         json_object_set_new(obj, "paused", json_boolean(paused));
         json_object_set_new(obj, "has_video", json_boolean(has_video));
