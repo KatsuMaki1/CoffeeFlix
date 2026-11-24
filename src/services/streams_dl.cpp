@@ -160,7 +160,8 @@ bool resolve_embed(const std::string& embed_url, const std::string& referer, std
 
     // Fallback to Anime-Sama host resolvers (vidmoly, sibnet, sendvid, etc.)
     animesama::Stream st;
-    if (animesama::resolve_video_url(embed_url, st) && !st.url.empty() && st.type != "embed") {
+    if (animesama::resolve_video_url(embed_url, st) && !st.url.empty() &&
+        (st.type == "m3u8" || st.type == "mp4")) {
         stream_url = st.url;
         is_mp4 = (st.type == "mp4");
         return true;
