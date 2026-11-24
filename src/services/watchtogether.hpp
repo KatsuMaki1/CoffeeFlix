@@ -3,12 +3,19 @@
 // WatchTogether: serverless-relay room synchronization (via ntfy.sh) for YouTube, Anime-Sama, StreamsDL, etc.
 
 #include <string>
+#include <vector>
 
 #include "player/player.hpp"
 
 namespace watchtogether {
 
+struct ChatMsg {
+    std::string sender;
+    std::string text;
+};
+
 struct SyncEvent {
+    bool is_chat = false;
     std::string sender;
     std::string service;
     std::string id;
@@ -31,6 +38,9 @@ std::string current_media_title();
 std::string create_room();
 bool join_room(const std::string& code);
 void leave_room();
+
+void send_chat(const std::string& text);
+std::vector<ChatMsg> chat_history();
 
 // Called from player::report_progress() to broadcast local playback state.
 void on_local_playback(const player::Source& src, double pos, bool paused, bool has_video, bool force);

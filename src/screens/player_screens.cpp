@@ -1434,6 +1434,23 @@ public:
                                  Color(255, 255, 255, (uint8_t)(210 * images::fade(bg, 0.6f))));
             }
             gfx::fill_rect_vgrad(Rect(0, 0, W, H), Color(0, 0, 0, 90), Color(0, 0, 0, 200));
+            if (lofi_) {
+                double tm = ui::time();
+                // Cozy Lo-Fi night atmosphere: warm amber glow + gentle rain streaks + drifting embers
+                float pulse = 0.5f + 0.5f * std::sin((float)tm * 0.8f);
+                gfx::glow(Rect(-100, -100, 620, 520), Color(255, 165, 70, (uint8_t)(42 + 20 * pulse)));
+                gfx::glow(Rect(W - 460, H - 380, 520, 420), Color(120, 140, 255, (uint8_t)(32 + 16 * pulse)));
+                for (int i = 0; i < 28; i++) {
+                    float rx = std::fmod((i * 197.3f + (float)tm * 55.0f), (float)W);
+                    float ry = std::fmod((i * 113.7f + (float)tm * (280.0f + (i % 5) * 45.0f)), (float)H);
+                    gfx::fill_rect(Rect(rx, ry, 2.0f, 18.0f + (i % 3) * 8.0f), Color(190, 215, 255, 55));
+                }
+                for (int i = 0; i < 14; i++) {
+                    float fx = std::fmod(i * 251.0f + std::sin((float)tm * 0.6f + i) * 35.0f + (float)W, (float)W);
+                    float fy = std::fmod(H - std::fmod(i * 97.0f + (float)tm * (22.0f + (i % 4) * 8.0f), (float)H), (float)H);
+                    gfx::fill_circle(fx, fy, 3.0f + (i % 3), Color(255, 195, 110, 85));
+                }
+            }
 
 
             // Artwork
@@ -1575,7 +1592,9 @@ public:
         cx += 84;
         if (!player::live()) {
             if (icon_button(id(g, "karaoke"), cx, cy, 28, ic::SUBTITLES, g, 0, karaoke_)) karaoke_ = !karaoke_;
+            cx += 84;
         }
+        if (icon_button(id(g, "lofi"), cx, cy, 28, ic::LOCAL_CAFE, g, 0, lofi_)) lofi_ = !lofi_;
         if (split) {
             const int sound = pad_views::remote_sound();
             const char* label = sound == 1 ? tr("Sound: GamePad only") : sound == 2 ? tr("Sound: TV and GamePad") : tr("Sound: TV only");
@@ -1599,6 +1618,7 @@ public:
 private:
     TrackMenu menu_;
     bool karaoke_ = false;
+    bool lofi_ = false;
 };
 
 }  // namespace

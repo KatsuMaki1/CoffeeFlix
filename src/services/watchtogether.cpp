@@ -32,6 +32,7 @@ std::string g_last_seen_msg_id;
 
 bool g_has_pending = false;
 SyncEvent g_pending;
+std::vector<ChatMsg> g_chat;
 
 std::atomic<bool> g_running{false};
 std::thread g_thread;
@@ -84,7 +85,24 @@ void handle_line(const std::string& line, std::string& since) {
     if (!payload) return;
 
     SyncEvent se;
+    std::string mtype = jstr(payload, "type");
     se.sender = jstr(payload, "sender");
+    if (mtype == "chat") {
+        se.is_chat = true;
+        se.title = jstr(payload, "text");
+        json_decref(payload);
+        if (se.title.empty()) return;
+        std::lock_guard<std::mutex> lk(g_mtx);
+        if (se.sender != g_sender && mid != g_last_seen_msg_id) {
+            g_last_seen_msg_id = mid;
+            g_chat.push_back({se.sender, se.title});
+            if (g_chat.size() > 20) g_chat.erase(g_chat.begin());
+            g_pending = std::move(se);
+            g_has_pending = true;
+        }
+        return;
+    }
+
     se.service = jstr(payload, "service");
     se.id = jstr(payload, "id");
     se.title = jstr(payload, "title");
@@ -189,8 +207,39 @@ void leave_room() {
     std::lock_guard<std::mutex> lk(g_mtx);
     g_room.clear();
     g_media_title.clear();
+    g_chat.clear();
     g_has_pending = false;
     log_message(LOG_OK, "WatchTogether", "Left room");
+}
+
+void send_chat(const std::string& text) {
+    std::string clean = animesama::txt::trim(text);
+    if (clean.empty()) return;
+    std::string room, payload_str;
+    {
+        std::lock_guard<std::mutex> lk(g_mtx);
+        if (g_room.empty()) return;
+        room = g_room;
+        g_chat.push_back({"Moi", clean});
+        if (g_chat.size() > 20) g_chat.erase(g_chat.begin());
+
+        json_t* obj = json_object();
+        json_object_set_new(obj, "type", json_string("chat"));
+        json_object_set_new(obj, "sender", json_string(g_sender.c_str()));
+        json_object_set_new(obj, "text", json_string(clean.c_str()));
+        char* dumped = json_dumps(obj, JSON_COMPACT);
+        payload_str = dumped ? dumped : "{}";
+        if (dumped) free(dumped);
+        json_decref(obj);
+    }
+    std::thread([room = std::move(room), payload_str = std::move(payload_str)]() {
+        http::post_json("https://ntfy.sh/cfwt-" + room, payload_str, {{"User-Agent", "CoffeeFlix/1.0"}}, 6);
+    }).detach();
+}
+
+std::vector<ChatMsg> chat_history() {
+    std::lock_guard<std::mutex> lk(g_mtx);
+    return g_chat;
 }
 
 void note_remote_applied() {

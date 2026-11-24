@@ -75,11 +75,41 @@ public:
             text::draw_wrapped(font::body, Rect(card.x + 28, card.y + 132, card.w - 56, 60), status, t.text2, 2);
             y += 236;
 
-            if (button(id(g, "leave"), Rect(x0, y, 250, 54), "Quitter le salon", ic::STOP, BTN_NORMAL, g, F_DEFAULT)) {
+            if (button(id(g, "chat"), Rect(x0, y, 240, 52), "Envoyer un message", ic::FORUM, BTN_PRIMARY, g, F_DEFAULT)) {
+                prompt_text("Chat WatchTogether", "", "Ton message...", [](std::string msg) {
+                    wt::send_chat(msg);
+                });
+            }
+            if (button(id(g, "leave"), Rect(x0 + 256, y, 220, 52), "Quitter le salon", ic::STOP, BTN_NORMAL, g)) {
                 wt::leave_room();
                 toast("Salon quitte", ic::INFO);
             }
-            y += 74;
+            y += 68;
+
+            // Quick reactions
+            const char* reacts[] = {"LOL", "Incroyable !", "Pause stp", "GO !"};
+            Id rg = id(g, "reacts");
+            float rx = x0;
+            for (int i = 0; i < 4; i++) {
+                float cw = std::max(100.0f, text::measure(font::body_bold, reacts[i]) + 28.0f);
+                if (chip(id(rg, (int64_t)i), Rect(rx, y, cw, 38), reacts[i], false, rg)) {
+                    wt::send_chat(reacts[i]);
+                }
+                rx += cw + 10;
+            }
+            y += 54;
+
+            auto msgs = wt::chat_history();
+            if (!msgs.empty()) {
+                text::draw(font::small_bold, x0, y, "CHAT DU SALON", t.accent);
+                y += 30;
+                size_t start = msgs.size() > 6 ? msgs.size() - 6 : 0;
+                for (size_t i = start; i < msgs.size(); i++) {
+                    std::string line = msgs[i].sender + ": " + msgs[i].text;
+                    text::draw_fit(font::body, x0, y, W - x0 - 60, line, t.text);
+                    y += 30;
+                }
+            }
         }
 
         page_.end(y + page_.scroll());
@@ -97,6 +127,11 @@ std::unique_ptr<app::Screen> make_watchtogether() { return std::make_unique<Watc
 void poll_watchtogether() {
     wt::SyncEvent ev;
     if (!wt::poll_event(ev)) return;
+
+    if (ev.is_chat) {
+        ui::toast(util::fmt("[Chat] %s", ev.title.c_str()), ic::FORUM);
+        return;
+    }
 
     const player::Source& cur = player::source();
     std::string cur_id = cur.id.empty() ? cur.url : cur.id;
