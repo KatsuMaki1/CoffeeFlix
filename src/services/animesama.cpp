@@ -11,6 +11,7 @@
 #include "core/http.hpp"
 #include "logger/logger.hpp"
 #include "services/animesama_text.hpp"
+#include "services/aniskip.hpp"
 
 namespace animesama {
 
@@ -593,13 +594,14 @@ player::Source make_source(const AnimeInfo& info, const Season& season, const Ep
     src.extra = list.page_url;
     src.user_agent = UA;
     src.chunked_http = true;
-    src.resolve = [list, ep](player::Source& s, std::string& err) -> bool {
+    src.resolve = [list, ep, anime_title = info.title](player::Source& s, std::string& err) -> bool {
         Stream st;
         if (!resolve_episode(list, ep, st, err)) return false;
         s.url = st.url;
         s.chunked_http = (st.type == "mp4");
         s.headers.clear();
         if (!st.referer.empty()) s.headers.push_back({"Referer", st.referer});
+        s.skip_segments = aniskip::fetch_segments(anime_title, ep.number);
         return true;
     };
     return src;

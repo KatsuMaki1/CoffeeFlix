@@ -19,6 +19,7 @@
 #include "player/player.hpp"
 #include "screens/screens.hpp"
 #include "screens/youtube_common.hpp"
+#include "services/lyrics.hpp"
 #include "services/ryd.hpp"
 #include "services/yt_account.hpp"
 #include "services/youtube.hpp"
@@ -1472,18 +1473,65 @@ public:
                 y += 34;
             }
 
-            // Visualizer
-            float vx = x, vy = 470, bw = (w - 15 * 8) / 16.0f;
-            for (int i = 0; i < 16; i++) {
-                float v = bars[i];
-                float bh = 6 + std::max(0.0f, v) * 70;
-                Color c = gfx::lerp(t.accent, t.accent2, i / 15.0f);
-                gfx::fill_rrect(Rect(vx + i * (bw + 8), vy - bh, bw, bh), bw * 0.4f, c.alpha(0.85f));
-                gfx::fill_rrect(Rect(vx + i * (bw + 8), vy + 6, bw, bh * 0.35f), bw * 0.4f, c.alpha(0.18f));
+            double pos = player::position(), dur = player::duration();
+            if (karaoke_) {
+                lyrics::TrackLyrics lyr = lyrics::get(src.id.empty() ? src.url : src.id, src.title, src.subtitle, dur);
+                float ky = 325;
+                if (lyr.loading) {
+                    text::draw_fit(font::body, x, ky + 60, w, "Recherche des paroles...", t.text2);
+                } else if (!lyr.found || lyr.lines.empty()) {
+                    text::draw_fit(font::body, x, ky + 60, w, "Paroles indisponibles pour ce titre", t.text3);
+                } else {
+                    int cur = 0;
+                    if (lyr.synced) {
+                        for (int i = 0; i < (int)lyr.lines.size(); i++) {
+                            if (lyr.lines[i].time <= pos + 0.15) cur = i;
+                            else break;
+                        }
+                    } else if (dur > 1.0) {
+                        cur = std::clamp((int)((pos / dur) * (double)lyr.lines.size()), 0, (int)lyr.lines.size() - 1);
+                    }
+
+                    if (cur > 0) {
+                        text::draw_fit(font::body, x, ky, w, lyr.lines[cur - 1].text, t.text3);
+                    }
+                    ky += 36;
+
+                    const std::string& cur_txt = lyr.lines[cur].text;
+                    float lh = text::line_height(font::title);
+                    float lw = std::min(w, text::measure(font::title, cur_txt));
+                    text::draw_fit(font::title, x, ky, w, cur_txt, t.text2.alpha(0.4f));
+                    double t0 = lyr.lines[cur].time;
+                    double t1 = (cur + 1 < (int)lyr.lines.size()) ? lyr.lines[cur + 1].time : (dur > t0 ? dur : t0 + 4.0);
+                    float prog = lyr.synced ? (float)std::clamp((pos - t0) / std::max(0.4, t1 - t0), 0.0, 1.0) : 1.0f;
+                    if (prog > 0.01f && lw > 1.0f) {
+                        gfx::push_clip(Rect(x - 2, ky - 4, lw * prog + 4, lh + 8));
+                        text::draw_fit(font::title, x, ky, w, cur_txt, t.accent);
+                        gfx::pop_clip();
+                    }
+                    ky += lh + 14;
+
+                    if (cur + 1 < (int)lyr.lines.size()) {
+                        text::draw_fit(font::body_bold, x, ky, w, lyr.lines[cur + 1].text, t.text2.alpha(0.85f));
+                        ky += 32;
+                    }
+                    if (cur + 2 < (int)lyr.lines.size()) {
+                        text::draw_fit(font::body, x, ky, w, lyr.lines[cur + 2].text, t.text3);
+                    }
+                }
+            } else {
+                // Visualizer
+                float vx = x, vy = 470, bw = (w - 15 * 8) / 16.0f;
+                for (int i = 0; i < 16; i++) {
+                    float v = bars[i];
+                    float bh = 6 + std::max(0.0f, v) * 70;
+                    Color c = gfx::lerp(t.accent, t.accent2, i / 15.0f);
+                    gfx::fill_rrect(Rect(vx + i * (bw + 8), vy - bh, bw, bh), bw * 0.4f, c.alpha(0.85f));
+                    gfx::fill_rrect(Rect(vx + i * (bw + 8), vy + 6, bw, bh * 0.35f), bw * 0.4f, c.alpha(0.18f));
+                }
             }
 
             // Progress
-            double pos = player::position(), dur = player::duration();
             if (!player::live()) {
                 progress_bar(Rect(x, 530, w, 6), dur > 0 ? (float)(pos / dur) : 0, dur > 0 ? (float)(player::buffered_until() / dur) : 0);
                 draw_time_row(x, 546, w, pos, dur, false);
@@ -1524,6 +1572,10 @@ public:
             cx += 84;
         }
         if (icon_button(id(g, "sleep"), cx, cy, 28, ic::SCHEDULE, g, 0, sleep_timer::active())) show_sleep_timer_menu();
+        cx += 84;
+        if (!player::live()) {
+            if (icon_button(id(g, "karaoke"), cx, cy, 28, ic::SUBTITLES, g, 0, karaoke_)) karaoke_ = !karaoke_;
+        }
         if (split) {
             const int sound = pad_views::remote_sound();
             const char* label = sound == 1 ? tr("Sound: GamePad only") : sound == 2 ? tr("Sound: TV and GamePad") : tr("Sound: TV only");
@@ -1546,6 +1598,7 @@ public:
 
 private:
     TrackMenu menu_;
+    bool karaoke_ = false;
 };
 
 }  // namespace

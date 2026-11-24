@@ -12,6 +12,7 @@ std::unique_ptr<app::Screen> make_section_root(app::Section s) {
         case app::SEC_YTMUSIC: return make_ytmusic();
         case app::SEC_SOUNDCLOUD: return make_soundcloud();
         case app::SEC_ANIMESAMA: return make_animesama();
+        case app::SEC_MANGADEX: return make_mangadex();
         case app::SEC_STREAMSDL: return make_streamsdl();
         case app::SEC_FREETV: return make_freetv();
         case app::SEC_JELLYFIN: return make_jellyfin();
