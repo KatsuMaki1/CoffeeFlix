@@ -5,7 +5,7 @@
 #include <cstring>
 
 #include "core/http.hpp"
-#include "platform/logger.hpp"
+#include "logger/logger.hpp"
 #include "services/animesama_text.hpp"
 
 namespace animesama {
