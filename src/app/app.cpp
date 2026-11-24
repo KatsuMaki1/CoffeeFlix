@@ -80,6 +80,7 @@ const RailEntry RAIL[] = {
     {SEC_SEARCH, ic::SEARCH, N_("Search")},
     {SEC_YOUTUBE, ic::SMART_DISPLAY, "YouTube"},
     {SEC_YTMUSIC, ic::MUSIC, "YT Music"},
+    {SEC_SPOTIFY, ic::MUSIC, "Spotify"},
     {SEC_SOUNDCLOUD, ic::MUSIC, "SoundCloud"},
     {SEC_ANIMESAMA, ic::MOVIE, "Anime-Sama"},
     {SEC_MANGADEX, ic::BOOK, "MangaDex"},

@@ -42,6 +42,7 @@ const SectionInfo SECTIONS[] = {
     {"search", app::SEC_SEARCH, N_("Search"), true, true},
     {"youtube", app::SEC_YOUTUBE, "YouTube", true, true},
     {"ytmusic", app::SEC_YTMUSIC, "YT Music", true, true},
+    {"spotify", app::SEC_SPOTIFY, "Spotify", true, true},
     {"soundcloud", app::SEC_SOUNDCLOUD, "SoundCloud", true, true},
     {"animesama", app::SEC_ANIMESAMA, "Anime-Sama", true, true},
     {"mangadex", app::SEC_MANGADEX, "MangaDex", true, true},
