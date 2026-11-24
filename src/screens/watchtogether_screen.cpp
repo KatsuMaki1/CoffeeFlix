@@ -189,8 +189,6 @@ void poll_watchtogether() {
         }
         return;
     }
-    return;
-  }
 
   if (!player::started())
     return;

@@ -16,7 +16,6 @@ std::unique_ptr<app::Screen> make_section_root(app::Section s) {
         case app::SEC_STREAMSDL: return make_streamsdl();
         case app::SEC_FREETV: return make_freetv();
         case app::SEC_WATCHTOGETHER: return make_watchtogether();
-        case app::SEC_REDDIT: return make_reddit();
         case app::SEC_JELLYFIN: return make_jellyfin();
         case app::SEC_NAVIDROME: return make_navidrome();
         case app::SEC_TWITCH: return make_twitch();

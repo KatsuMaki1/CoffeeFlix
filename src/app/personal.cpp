@@ -48,7 +48,6 @@ const SectionInfo SECTIONS[] = {
     {"streamsdl", app::SEC_STREAMSDL, "StreamsDL", true, true},
     {"freetv", app::SEC_FREETV, "TV & Freebox", true, true},
     {"watchtogether", app::SEC_WATCHTOGETHER, "WatchTogether", true, true},
-    {"reddit", app::SEC_REDDIT, "Reddit", true, true},
     {"jellyfin", app::SEC_JELLYFIN, "Jellyfin", true, true},
     {"navidrome", app::SEC_NAVIDROME, "Navidrome", true, true},
     {"twitch", app::SEC_TWITCH, "Twitch", true, true},
