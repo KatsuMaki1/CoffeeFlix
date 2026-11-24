@@ -1,11 +1,10 @@
 #include "services/streams_dl.hpp"
 
-#include <jansson.h>
-
-#include <cstdlib>
+#include <algorithm>
+#include <cctype>
+#include <set>
 
 #include "core/http.hpp"
-#include "core/store.hpp"
 #include "logger/logger.hpp"
 #include "services/animesama_text.hpp"
 
@@ -13,166 +12,259 @@ namespace streams_dl {
 
 namespace {
 
-constexpr const char* STORE_URL_KEY = "streams_dl_url";
-constexpr const char* DEFAULT_URL = "http://127.0.0.1:8000";
+constexpr const char* BASE_URL = "https://www.french-streaming.tv";
+constexpr const char* UA =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36";
 
-std::string jstr(json_t* obj, const char* key) {
-    if (!obj || !json_is_object(obj)) return "";
-    json_t* v = json_object_get(obj, key);
-    return json_is_string(v) ? json_string_value(v) : "";
+http::Response fetch_html(const std::string& url, const std::string& referer = "", long timeout = 15) {
+    http::Request req;
+    req.url = url;
+    req.timeout = timeout;
+    req.headers.push_back({"User-Agent", UA});
+    req.headers.push_back({"Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"});
+    req.headers.push_back({"Accept-Language", "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"});
+    if (!referer.empty()) req.headers.push_back({"Referer", referer});
+    return http::perform(req);
 }
 
-std::string normalize_base(std::string u) {
-    u = animesama::txt::trim(u);
-    while (!u.empty() && u.back() == '/') u.pop_back();
-    if (!u.empty() && !animesama::txt::starts_with(u, "http://") && !animesama::txt::starts_with(u, "https://"))
-        u = "http://" + u;
-    return u;
+std::vector<Media> parse_cards(const std::string& html) {
+    std::vector<Media> out;
+    std::set<std::string> seen;
+
+    // Focus on main content if present, otherwise scan whole document
+    size_t start = html.find("id=\"dle-content\"");
+    if (start == std::string::npos) start = 0;
+
+    size_t pos = start;
+    while (pos < html.size()) {
+        std::string tag;
+        size_t tag_end = 0;
+        if (!animesama::txt::find_tag(html, "short-poster", pos, tag, &tag_end)) break;
+        pos = tag_end;
+
+        std::string href = animesama::txt::attr(tag, "href");
+        if (href.empty()) continue;
+        std::string full_url = animesama::txt::url_resolve(BASE_URL, href);
+        if (!seen.insert(full_url).second) continue;
+
+        size_t close_a = html.find("</a>", tag_end);
+        if (close_a == std::string::npos) close_a = std::min(html.size(), tag_end + 1500);
+        std::string block = html.substr(tag_end, close_a - tag_end);
+
+        std::string img_url;
+        std::string img_tag;
+        if (animesama::txt::find_tag(block, "<img", 0, img_tag)) {
+            img_url = animesama::txt::attr(img_tag, "src");
+            if (img_url.empty()) img_url = animesama::txt::attr(img_tag, "data-src");
+            if (!img_url.empty()) img_url = animesama::txt::url_resolve(BASE_URL, img_url);
+        }
+
+        std::string title;
+        size_t tpos = block.find("short-title");
+        if (tpos != std::string::npos) {
+            size_t gt = block.find('>', tpos);
+            if (gt != std::string::npos) {
+                title = animesama::txt::inner_text(block, gt + 1, "div");
+            }
+        }
+        if (title.empty()) title = animesama::txt::attr(tag, "alt");
+        title = animesama::txt::collapse_ws(animesama::txt::html_decode(title));
+        if (title.empty()) continue;
+
+        Media m;
+        m.title = std::move(title);
+        m.url = std::move(full_url);
+        m.image_url = std::move(img_url);
+        out.push_back(std::move(m));
+    }
+    return out;
+}
+
+bool is_supported_host(const std::string& url) {
+    std::string low = animesama::txt::lower(url);
+    return low.find("vidzy.") != std::string::npos || low.find("uqload.") != std::string::npos ||
+           low.find("fsvid.") != std::string::npos || low.find("vidmoly.") != std::string::npos ||
+           low.find("sibnet.") != std::string::npos || low.find("sendvid.") != std::string::npos ||
+           low.find("luluvdo.") != std::string::npos || low.find("kokoflix.") != std::string::npos ||
+           low.find("voe.") != std::string::npos;
+}
+
+std::string host_label(const std::string& url) {
+    std::string host = animesama::txt::url_host(url);
+    if (host.empty()) return "Lecteur";
+    return host;
+}
+
+bool find_stream_in_html(const std::string& html, std::string& stream_url, bool& is_mp4) {
+    // Scan for .m3u8 first, then .mp4 (skipping known decoy URLs like troll/master.m3u8)
+    const char* exts[] = {".m3u8", ".mp4"};
+    for (int pass = 0; pass < 2; pass++) {
+        const char* ext = exts[pass];
+        size_t p = 0;
+        while ((p = html.find(ext, p)) != std::string::npos) {
+            size_t q = p;
+            while (q > 0 && html[q - 1] != '"' && html[q - 1] != '\'' && html[q - 1] != '\n' && p - q < 1024) q--;
+            if (q == 0 || (html[q - 1] != '"' && html[q - 1] != '\'')) {
+                p += 4;
+                continue;
+            }
+            char quote = html[q - 1];
+            size_t e = html.find(quote, p);
+            if (e == std::string::npos) {
+                p += 4;
+                continue;
+            }
+            std::string u = html.substr(q, e - q);
+            std::string low = animesama::txt::lower(u);
+            if ((animesama::txt::starts_with(low, "http://") || animesama::txt::starts_with(low, "https://")) &&
+                low.find("troll/") == std::string::npos && low.find("sample") == std::string::npos) {
+                stream_url = u;
+                is_mp4 = (pass == 1);
+                return true;
+            }
+            p = e;
+        }
+    }
+    return false;
+}
+
+bool resolve_embed(const std::string& embed_url, const std::string& referer, std::string& stream_url, bool& is_mp4,
+                   std::string& err) {
+    std::string low = animesama::txt::lower(embed_url);
+    if (low.find(".m3u8") != std::string::npos) {
+        stream_url = embed_url;
+        is_mp4 = false;
+        return true;
+    }
+    if (low.find(".mp4") != std::string::npos) {
+        stream_url = embed_url;
+        is_mp4 = true;
+        return true;
+    }
+
+    http::Response r = fetch_html(embed_url, referer, 15);
+    if (!r.ok() || r.body.empty()) {
+        err = r.error.empty() ? ("Embed HTTP " + std::to_string(r.status)) : r.error;
+        return false;
+    }
+
+    if (find_stream_in_html(r.body, stream_url, is_mp4)) {
+        return true;
+    }
+
+    // Check if there is a nested iframe inside the embed wrapper
+    size_t pos = 0;
+    std::string tag;
+    while (animesama::txt::find_tag(r.body, "<iframe", pos, tag, &pos)) {
+        std::string src = animesama::txt::attr(tag, "src");
+        if (!src.empty() && animesama::txt::starts_with(src, "http")) {
+            http::Response r2 = fetch_html(src, embed_url, 15);
+            if (r2.ok() && find_stream_in_html(r2.body, stream_url, is_mp4)) return true;
+        }
+    }
+
+    err = "Flux video introuvable sur cet hebergeur";
+    return false;
 }
 
 }  // namespace
 
-std::string server_url() {
-    std::string u = store::get_str(STORE_URL_KEY, DEFAULT_URL);
-    return u.empty() ? std::string(DEFAULT_URL) : normalize_base(u);
-}
-
-void set_server_url(const std::string& url) { store::set_str(STORE_URL_KEY, normalize_base(url)); }
-
-std::vector<std::string> get_providers(std::string& err) {
-    std::vector<std::string> out = {"french-stream", "flemmix", "papadustream"};
-    http::Response r = http::get(server_url() + "/providers", {}, 5);
-    if (!r.ok()) {
-        err = r.error.empty() ? ("HTTP " + std::to_string(r.status)) : r.error;
-        return out;
-    }
-    json_error_t jerr;
-    json_t* root = json_loads(r.body.c_str(), 0, &jerr);
-    if (!root) return out;
-    json_t* arr = json_object_get(root, "providers");
-    if (json_is_array(arr) && json_array_size(arr) > 0) {
-        out.clear();
-        size_t i;
-        json_t* el;
-        json_array_foreach(arr, i, el) {
-            if (json_is_string(el)) out.push_back(json_string_value(el));
-        }
-    }
-    json_decref(root);
-    return out;
-}
-
-SearchResults search(const std::string& query, const std::string& provider) {
+SearchResults browse(const std::string& category) {
     SearchResults res;
-    std::string q = animesama::txt::trim(query);
-    if (q.empty()) {
-        res.error = "Recherche vide";
-        return res;
-    }
+    std::string path = "/";
+    if (category == "Films") path = "/film/";
+    else if (category == "Series") path = "/serie/";
 
-    std::string url = server_url() + "/search?query=" + animesama::txt::url_encode(q) +
-                      "&provider_name=" + animesama::txt::url_encode(provider);
-    http::Response r = http::get(url, {}, 30);
+    http::Response r = fetch_html(std::string(BASE_URL) + path, BASE_URL, 15);
     if (!r.ok()) {
         res.error = r.error.empty() ? ("HTTP " + std::to_string(r.status)) : r.error;
         return res;
     }
-
-    json_error_t jerr;
-    json_t* root = json_loads(r.body.c_str(), 0, &jerr);
-    if (!root) {
-        res.error = "Reponse JSON invalide";
-        return res;
-    }
-
-    std::string api_err = jstr(root, "error");
-    if (!api_err.empty()) {
-        res.error = api_err;
-        json_decref(root);
-        return res;
-    }
-
-    json_t* arr = json_object_get(root, "results");
-    if (json_is_array(arr)) {
-        size_t i;
-        json_t* el;
-        json_array_foreach(arr, i, el) {
-            Media m;
-            m.title = jstr(el, "title");
-            m.url = jstr(el, "url");
-            m.image_url = jstr(el, "image_url");
-            if (!m.title.empty() && !m.url.empty()) res.items.push_back(std::move(m));
-        }
-    }
-    json_decref(root);
-    log_message(LOG_OK, "StreamsDL", "search('%s', %s) -> %d result(s)", q.c_str(), provider.c_str(),
-                (int)res.items.size());
+    res.items = parse_cards(r.body);
+    if (res.items.empty()) res.error = "Aucun contenu trouve sur le site";
+    log_message(LOG_OK, "StreamsDL", "browse(%s) -> %d item(s)", category.c_str(), (int)res.items.size());
     return res;
 }
 
-VideoResults get_videos(const std::string& media_url, const std::string& provider) {
-    VideoResults res;
-    json_t* body = json_object();
-    json_object_set_new(body, "media_url", json_string(media_url.c_str()));
-    json_object_set_new(body, "provider_name", json_string(provider.c_str()));
-    char* dumped = json_dumps(body, JSON_COMPACT);
-    std::string payload = dumped ? dumped : "{}";
-    if (dumped) free(dumped);
-    json_decref(body);
+SearchResults search(const std::string& query, const std::string& category) {
+    SearchResults res;
+    std::string q = animesama::txt::trim(query);
+    if (q.empty()) return browse(category);
 
-    http::Response r = http::post_json(server_url() + "/get-videos", payload, {}, 45);
+    std::string url = std::string(BASE_URL) + "/search/" + animesama::txt::url_encode(q) + "/";
+    http::Response r = fetch_html(url, BASE_URL, 15);
     if (!r.ok()) {
         res.error = r.error.empty() ? ("HTTP " + std::to_string(r.status)) : r.error;
         return res;
     }
 
-    json_error_t jerr;
-    json_t* root = json_loads(r.body.c_str(), 0, &jerr);
-    if (!root) {
-        res.error = "Reponse JSON invalide";
+    res.items = parse_cards(r.body);
+    log_message(LOG_OK, "StreamsDL", "search('%s') -> %d result(s)", q.c_str(), (int)res.items.size());
+    return res;
+}
+
+VideoResults get_videos(const std::string& media_url, const std::string& /*category*/) {
+    VideoResults res;
+    http::Response r = fetch_html(media_url, BASE_URL, 15);
+    if (!r.ok()) {
+        res.error = r.error.empty() ? ("HTTP " + std::to_string(r.status)) : r.error;
         return res;
     }
 
-    std::string api_err = jstr(root, "error");
-    if (!api_err.empty()) {
-        res.error = api_err;
-        json_decref(root);
-        return res;
-    }
+    std::set<std::string> seen;
+    int idx = 1;
 
-    json_t* arr = json_object_get(root, "results");
-    if (json_is_array(arr)) {
-        size_t i;
-        json_t* el;
-        json_array_foreach(arr, i, el) {
+    // Scan attributes (data-url, data-src, href, src) for supported video hosts
+    const char* needles[] = {"data-url=\"", "data-src=\"", "src=\"", "href=\""};
+    for (const char* needle : needles) {
+        size_t pos = 0;
+        size_t nlen = std::char_traits<char>::length(needle);
+        while ((pos = r.body.find(needle, pos)) != std::string::npos) {
+            pos += nlen;
+            size_t end = r.body.find('"', pos);
+            if (end == std::string::npos) break;
+            std::string u = animesama::txt::trim(r.body.substr(pos, end - pos));
+            pos = end + 1;
+
+            if (!animesama::txt::starts_with(u, "http")) continue;
+            if (!is_supported_host(u)) continue;
+            if (!seen.insert(u).second) continue;
+
             Video v;
-            v.title = jstr(el, "title");
-            v.url = jstr(el, "url");
-            v.html_url = jstr(el, "html_url");
-            v.image_url = jstr(el, "image_url");
-            v.duration = jstr(el, "duration");
-            v.resolution = jstr(el, "resolution");
-            if (!v.url.empty()) res.items.push_back(std::move(v));
+            v.title = "Lecteur " + std::to_string(idx++) + " (" + host_label(u) + ")";
+            v.url = u;
+            v.html_url = media_url;
+            res.items.push_back(std::move(v));
         }
     }
-    json_decref(root);
-    log_message(LOG_OK, "StreamsDL", "get_videos(%s) -> %d video(s)", media_url.c_str(), (int)res.items.size());
+
+    if (res.items.empty()) {
+        res.error = "Aucun lecteur compatible trouve sur cette page";
+    }
+    log_message(LOG_OK, "StreamsDL", "get_videos(%s) -> %d link(s)", media_url.c_str(), (int)res.items.size());
     return res;
 }
 
 player::Source make_source(const std::string& media_title, const std::string& media_cover, const Video& v) {
     player::Source src;
     src.title = v.title.empty() ? media_title : (media_title + " - " + v.title);
-    src.subtitle = v.resolution;
+    src.subtitle = v.resolution.empty() ? host_label(v.url) : v.resolution;
     src.artwork = v.image_url.empty() ? media_cover : v.image_url;
-    src.url = v.url;
     src.service = "streamsdl";
     src.id = v.url;
-    src.chunked_http = true;
-    src.user_agent = http::user_agent();
-    if (!v.html_url.empty()) src.headers.push_back({"Referer", v.html_url});
+    src.user_agent = UA;
+    src.chunked_http = false;
+    src.resolve = [embed = v.url, ref = v.html_url](player::Source& s, std::string& err) -> bool {
+        std::string stream_url;
+        bool is_mp4 = false;
+        if (!resolve_embed(embed, ref, stream_url, is_mp4, err)) return false;
+        s.url = stream_url;
+        s.chunked_http = is_mp4;
+        s.headers.clear();
+        s.headers.push_back({"Referer", animesama::txt::url_origin(embed) + "/"});
+        return true;
+    };
     return src;
 }
 
 }  // namespace streams_dl
-

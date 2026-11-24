@@ -1,5 +1,4 @@
-// StreamsDL: French movies & series via Starland9/streams_dl API (Flemmix, PapaduStream, French-Stream).
-#include <algorithm>
+// StreamsDL: French movies & series auto-fetched directly (no external server URL needed).
 #include <string>
 #include <vector>
 
@@ -24,8 +23,8 @@ namespace sd = streams_dl;
 
 class StreamsDetailScreen : public app::Screen {
 public:
-    StreamsDetailScreen(sd::Media media, std::string provider)
-        : media_(std::move(media)), provider_(std::move(provider)) {
+    StreamsDetailScreen(sd::Media media, std::string category)
+        : media_(std::move(media)), category_(std::move(category)) {
         load();
     }
 
@@ -50,11 +49,11 @@ public:
         float text_w = W - x0 - pw - 96;
         text::draw_wrapped(font::display, Rect(x0, y, text_w, 120), media_.title, t.text, 2);
         y += text::measure_wrapped(font::display, text_w, media_.title, 2) + 12;
-        text::draw_fit(font::body_bold, x0, y, text_w, provider_, t.accent);
+        text::draw_fit(font::body_bold, x0, y, text_w, category_, t.accent);
         y = std::max(y + 48, poster_r.y + ph + 24);
 
         if (loading_) {
-            loading_indicator(x0 + (W - x0 - 60) * 0.5f, y + 60, "Extraction des liens UQload...");
+            loading_indicator(x0 + (W - x0 - 60) * 0.5f, y + 60, "Chargement des lecteurs...");
             page_.end(y + 140 + page_.scroll());
             hint_bar({{"B", tr("Back")}});
             return;
@@ -82,8 +81,7 @@ public:
             Rect br(x0 + col * (bw + gap), y + row * (bh + 14), bw, bh);
             Id bid = id(vg, (int64_t)i);
             const auto& v = videos_.items[i];
-            std::string label = v.title.empty() ? util::fmt("Lien %d", (int)i + 1) : v.title;
-            if (!v.resolution.empty()) label += " (" + v.resolution + ")";
+            std::string label = v.title.empty() ? util::fmt("Lecteur %d", (int)i + 1) : v.title;
             if (button(bid, br, label.c_str(), ic::PLAY, BTN_NORMAL, vg, i == 0 ? F_DEFAULT : 0)) {
                 play_from((int)i);
             }
@@ -102,9 +100,9 @@ private:
     void load() {
         loading_ = true;
         std::string url = media_.url;
-        std::string prov = provider_;
+        std::string cat = category_;
         scope_.reset();
-        scope_.run<sd::VideoResults>([url, prov] { return sd::get_videos(url, prov); },
+        scope_.run<sd::VideoResults>([url, cat] { return sd::get_videos(url, cat); },
                                      [this](sd::VideoResults res) {
                                          videos_ = std::move(res);
                                          loading_ = false;
@@ -118,7 +116,7 @@ private:
     }
 
     sd::Media media_;
-    std::string provider_;
+    std::string category_;
     sd::VideoResults videos_;
     bool loading_ = false;
     tasks::Scope scope_;
@@ -127,7 +125,7 @@ private:
 
 class StreamsDlScreen : public app::Screen {
 public:
-    StreamsDlScreen() { load_providers(); }
+    StreamsDlScreen() { load_browse(); }
 
     app::Section section() const override { return app::SEC_STREAMSDL; }
 
@@ -139,37 +137,31 @@ public:
         page_.begin(id(g, "page"));
         float y = page_.y(48);
 
-        text::draw_fit(font::headline, x0, y, W - x0 - 300, "Films & Series", t.text);
-        std::string srv = sd::server_url();
-        float sw = std::min(300.0f, std::max(160.0f, measure_button(srv.c_str(), ic::SETTINGS)));
-        if (button(id(g, "server"), Rect(W - 60 - sw, y, sw, 44), srv.c_str(), ic::SETTINGS, BTN_NORMAL, g)) {
-            prompt_text("Serveur streams_dl", srv, "http://192.168.1.x:8000", [this](std::string u) {
-                sd::set_server_url(u);
-                load_providers();
-            }, false, true);
-        }
-        y += 60;
+        text::draw_fit(font::headline, x0, y, W - x0 - 60, "Films & Series", t.text);
+        y += 58;
 
-        // Provider chips
-        Id pg = id(g, "providers");
+        // Category chips
+        Id cg = id(g, "cats");
         float px = x0;
-        for (size_t i = 0; i < providers_.size(); i++) {
-            float cw = std::max(120.0f, text::measure(font::body_bold, providers_[i]) + 36.0f);
-            if (chip(id(pg, (int64_t)i), Rect(px, y, cw, 40), providers_[i].c_str(), providers_[i] == provider_, pg)) {
-                if (providers_[i] != provider_) {
-                    provider_ = providers_[i];
-                    if (searched_ && !query_.empty()) run_search();
+        for (size_t i = 0; i < categories_.size(); i++) {
+            float cw = std::max(120.0f, text::measure(font::body_bold, categories_[i]) + 36.0f);
+            if (chip(id(cg, (int64_t)i), Rect(px, y, cw, 40), categories_[i].c_str(),
+                     categories_[i] == category_, cg)) {
+                if (categories_[i] != category_) {
+                    category_ = categories_[i];
+                    query_.clear();
+                    load_browse();
                 }
             }
             px += cw + 12;
         }
-        if (focus_in_group(pg)) page_.focus_range(0, y + 60 + page_.scroll());
+        if (focus_in_group(cg)) page_.focus_range(0, y + 60 + page_.scroll());
         y += 56;
 
         // Search bar
         Rect sb(x0, y, W - x0 - 60, 56);
         if (search_bar(id(g, "search"), sb, query_, "Rechercher un film ou une serie...", g, F_DEFAULT)) {
-            prompt_text("Rechercher (StreamsDL)", query_, "Titre du film ou de la serie", [this](std::string q) {
+            prompt_text("Rechercher (Films & Series)", query_, "Titre du film ou de la serie", [this](std::string q) {
                 query_ = std::move(q);
                 run_search();
             });
@@ -177,17 +169,14 @@ public:
         y += 80;
 
         if (loading_) {
-            loading_indicator(x0 + (W - x0 - 60) * 0.5f, y + 90, "Recherche en cours...");
+            loading_indicator(x0 + (W - x0 - 60) * 0.5f, y + 90, "Chargement du catalogue...");
             y += 200;
         } else if (!results_.error.empty()) {
             if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 260), ic::WIFI_OFF,
-                                   "Serveur streams_dl inaccessible", results_.error.c_str())) {
-                run_search();
+                                   "Site inaccessible", results_.error.c_str())) {
+                if (query_.empty()) load_browse();
+                else run_search();
             }
-            y += 280;
-        } else if (!searched_) {
-            empty_state(Rect(x0, y, W - x0 - 60, 260), ic::LIVE_TV, "StreamsDL (Flemmix / French-Stream / PapaduStream)",
-                        "Configure l'adresse de ton serveur streams_dl en haut a droite puis lance une recherche.");
             y += 280;
         } else if (results_.items.empty()) {
             empty_state(Rect(x0, y, W - x0 - 60, 260), ic::SEARCH, "Aucun resultat",
@@ -211,7 +200,7 @@ public:
             };
             gs.on_focus = [this](int i) { set_backdrop(results_.items[i].image_url); };
             gs.on_click = [this](int i) {
-                app::push(std::make_unique<StreamsDetailScreen>(results_.items[i], provider_));
+                app::push(std::make_unique<StreamsDetailScreen>(results_.items[i], category_));
             };
             y += grid(id(g, "grid"), x0, y, gs, &page_);
         }
@@ -221,43 +210,37 @@ public:
     }
 
 private:
-    void load_providers() {
-        prov_scope_.reset();
-        prov_scope_.run<std::vector<std::string>>(
-            [] {
-                std::string err;
-                return sd::get_providers(err);
-            },
-            [this](std::vector<std::string> list) {
-                if (!list.empty()) {
-                    providers_ = std::move(list);
-                    if (std::find(providers_.begin(), providers_.end(), provider_) == providers_.end())
-                        provider_ = providers_[0];
-                }
-            });
+    void load_browse() {
+        loading_ = true;
+        std::string cat = category_;
+        scope_.reset();
+        scope_.run<sd::SearchResults>([cat] { return sd::browse(cat); }, [this](sd::SearchResults res) {
+            results_ = std::move(res);
+            loading_ = false;
+        });
     }
 
     void run_search() {
-        if (query_.empty()) return;
+        if (query_.empty()) {
+            load_browse();
+            return;
+        }
         loading_ = true;
-        searched_ = true;
         std::string q = query_;
-        std::string prov = provider_;
+        std::string cat = category_;
         scope_.reset();
-        scope_.run<sd::SearchResults>([q, prov] { return sd::search(q, prov); }, [this](sd::SearchResults res) {
+        scope_.run<sd::SearchResults>([q, cat] { return sd::search(q, cat); }, [this](sd::SearchResults res) {
             results_ = std::move(res);
             loading_ = false;
         });
     }
 
     std::string query_;
-    std::vector<std::string> providers_ = {"french-stream", "flemmix", "papadustream"};
-    std::string provider_ = "french-stream";
+    std::vector<std::string> categories_ = {"Nouveautes", "Films", "Series"};
+    std::string category_ = "Nouveautes";
     sd::SearchResults results_;
     bool loading_ = false;
-    bool searched_ = false;
     tasks::Scope scope_;
-    tasks::Scope prov_scope_;
     Page page_;
 };
 
@@ -266,4 +249,3 @@ private:
 std::unique_ptr<app::Screen> make_streamsdl() { return std::make_unique<StreamsDlScreen>(); }
 
 }  // namespace screens
-

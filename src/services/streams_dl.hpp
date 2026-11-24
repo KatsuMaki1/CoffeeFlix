@@ -1,6 +1,6 @@
 #pragma once
 
-// Client for Starland9/streams_dl FastAPI server (Flemmix, PapaduStream, French-Stream).
+// Direct French movies & series scraper (auto-fetches from french-streaming.tv, no external server required).
 
 #include <string>
 #include <vector>
@@ -22,10 +22,9 @@ struct SearchResults {
 
 struct Video {
     std::string title;
-    std::string url;
-    std::string html_url;
+    std::string url;       // embed URL or direct stream URL
+    std::string html_url;  // media page URL (Referer)
     std::string image_url;
-    std::string duration;
     std::string resolution;
 };
 
@@ -34,14 +33,10 @@ struct VideoResults {
     std::string error;
 };
 
-std::string server_url();
-void set_server_url(const std::string& url);
-
-std::vector<std::string> get_providers(std::string& err);
-SearchResults search(const std::string& query, const std::string& provider);
-VideoResults get_videos(const std::string& media_url, const std::string& provider);
+SearchResults browse(const std::string& category);
+SearchResults search(const std::string& query, const std::string& category);
+VideoResults get_videos(const std::string& media_url, const std::string& category);
 
 player::Source make_source(const std::string& media_title, const std::string& media_cover, const Video& v);
 
 }  // namespace streams_dl
-

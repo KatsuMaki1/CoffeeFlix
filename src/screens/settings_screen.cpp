@@ -1250,7 +1250,7 @@ private:
                 const store::Profile p = store::profile(store::active_profile());
                 return !p.name.empty() ? p.name : std::string(tr("Main"));
             }
-            case ACCOUNTS: return tr("Jellyfin, Navidrome, history");
+            case ACCOUNTS: return "Jellyfin, Navidrome, Last.fm, MyAnimeList";
             case NETWORK: return tr("Connection");
             case ABOUT: return tr("Updates, logs, licenses");
             default: return "";
