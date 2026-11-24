@@ -6,6 +6,7 @@
 
 #include "core/http.hpp"
 #include "logger/logger.hpp"
+#include "services/animesama.hpp"
 #include "services/animesama_text.hpp"
 
 namespace streams_dl {
@@ -85,8 +86,7 @@ bool is_supported_host(const std::string& url) {
     return low.find("vidzy.") != std::string::npos || low.find("uqload.") != std::string::npos ||
            low.find("fsvid.") != std::string::npos || low.find("vidmoly.") != std::string::npos ||
            low.find("sibnet.") != std::string::npos || low.find("sendvid.") != std::string::npos ||
-           low.find("luluvdo.") != std::string::npos || low.find("kokoflix.") != std::string::npos ||
-           low.find("voe.") != std::string::npos;
+           low.find("luluvdo.") != std::string::npos;
 }
 
 std::string host_label(const std::string& url) {
@@ -152,6 +152,20 @@ bool resolve_embed(const std::string& embed_url, const std::string& referer, std
         return true;
     }
 
+    // Try Dean Edwards packer decoding (used by uqload.vc, smoothpre, etc.)
+    std::string unpacked = animesama::unpack_packer(r.body);
+    if (!unpacked.empty() && find_stream_in_html(unpacked, stream_url, is_mp4)) {
+        return true;
+    }
+
+    // Fallback to Anime-Sama host resolvers (vidmoly, sibnet, sendvid, etc.)
+    animesama::Stream st;
+    if (animesama::resolve_video_url(embed_url, st) && !st.url.empty() && st.type != "embed") {
+        stream_url = st.url;
+        is_mp4 = (st.type == "mp4");
+        return true;
+    }
+
     // Check if there is a nested iframe inside the embed wrapper
     size_t pos = 0;
     std::string tag;
@@ -212,10 +226,9 @@ VideoResults get_videos(const std::string& media_url, const std::string& /*categ
     }
 
     std::set<std::string> seen;
-    int idx = 1;
 
-    // Scan attributes (data-url, data-src, href, src) for supported video hosts
-    const char* needles[] = {"data-url=\"", "data-src=\"", "src=\"", "href=\""};
+    // Scan attributes (data-url, data-url-default, data-src, src, href) for supported video hosts
+    const char* needles[] = {"data-url=\"", "data-url-default=\"", "data-src=\"", "src=\"", "href=\""};
     for (const char* needle : needles) {
         size_t pos = 0;
         size_t nlen = std::char_traits<char>::length(needle);
@@ -231,11 +244,25 @@ VideoResults get_videos(const std::string& media_url, const std::string& /*categ
             if (!seen.insert(u).second) continue;
 
             Video v;
-            v.title = "Lecteur " + std::to_string(idx++) + " (" + host_label(u) + ")";
+            v.title = "Lecteur (" + host_label(u) + ")";
             v.url = u;
             v.html_url = media_url;
             res.items.push_back(std::move(v));
         }
+    }
+
+    // Prioritize vidzy and uqload at the top of the list
+    std::stable_sort(res.items.begin(), res.items.end(), [](const Video& a, const Video& b) {
+        auto rank = [](const std::string& u) {
+            std::string low = animesama::txt::lower(u);
+            if (low.find("vidzy.") != std::string::npos) return 0;
+            if (low.find("uqload.") != std::string::npos) return 1;
+            return 2;
+        };
+        return rank(a.url) < rank(b.url);
+    });
+    for (size_t i = 0; i < res.items.size(); i++) {
+        res.items[i].title = "Lecteur " + std::to_string(i + 1) + " (" + host_label(res.items[i].url) + ")";
     }
 
     if (res.items.empty()) {
