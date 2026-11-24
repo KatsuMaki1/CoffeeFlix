@@ -21,7 +21,7 @@ constexpr const char* KEY_USER_ID = "sc_user_id";
 constexpr const char* KEY_USERNAME = "sc_username";
 
 std::mutex g_cid_mtx;
-std::string g_client_id;
+std::string g_client_id = "Hpp4j7peQTPimFlKMjTX3y3mK2946b7y";
 
 std::string jstr(json_t* obj, const char* key) {
     if (!obj || !json_is_object(obj)) return "";
@@ -36,7 +36,10 @@ std::string fetch_client_id(bool force_refresh = false) {
     }
 
     http::Response hr = http::get("https://soundcloud.com/", {{"User-Agent", UA}}, 12);
-    if (!hr.ok() || hr.body.empty()) return "";
+    if (!hr.ok() || hr.body.empty()) {
+        std::lock_guard<std::mutex> lk(g_cid_mtx);
+        return g_client_id;
+    }
 
     std::vector<std::string> scripts;
     size_t pos = 0;
@@ -50,16 +53,27 @@ std::string fetch_client_id(bool force_refresh = false) {
 
     std::string found;
     for (auto it = scripts.rbegin(); it != scripts.rend(); ++it) {
-        http::Response jr = http::get(*it, {{"User-Agent", UA}}, 12);
-        if (!jr.ok() || jr.body.empty()) continue;
-        size_t p = jr.body.find("client_id:\"");
-        if (p == std::string::npos) continue;
-        p += 11;
-        size_t e = jr.body.find('"', p);
-        if (e != std::string::npos && e > p && (e - p) >= 16 && (e - p) <= 48) {
-            found = jr.body.substr(p, e - p);
-            break;
-        }
+        std::string tail;
+        http::Request req;
+        req.url = *it;
+        req.timeout = 12;
+        req.headers.push_back({"User-Agent", UA});
+        req.on_data = [&tail, &found](const http::Response&, const char* data, size_t size) -> bool {
+            tail.append(data, size);
+            size_t p = tail.find("client_id:\"");
+            if (p != std::string::npos) {
+                size_t s = p + 11;
+                size_t e = tail.find('"', s);
+                if (e != std::string::npos && (e - s) >= 16 && (e - s) <= 48) {
+                    found = tail.substr(s, e - s);
+                    return false;  // stop transfer immediately
+                }
+            }
+            if (tail.size() > 128) tail.erase(0, tail.size() - 128);
+            return true;
+        };
+        http::perform(req);
+        if (!found.empty()) break;
     }
 
     if (!found.empty()) {
@@ -67,7 +81,8 @@ std::string fetch_client_id(bool force_refresh = false) {
         g_client_id = found;
         log_message(LOG_OK, "SoundCloud", "Discovered client_id");
     }
-    return found;
+    std::lock_guard<std::mutex> lk(g_cid_mtx);
+    return g_client_id;
 }
 
 http::Response sc_get(const std::string& url_without_cid) {
@@ -223,6 +238,31 @@ bool sign_in_username(const std::string& user_or_url, std::string& err) {
 
     http::Response r = sc_get("https://api-v2.soundcloud.com/resolve?url=" + animesama::txt::url_encode(u));
     if (!r.ok()) {
+        // Fallback: search by display name if permalink/URL returned 404
+        std::string q = animesama::txt::trim(user_or_url);
+        http::Response sr = sc_get("https://api-v2.soundcloud.com/search/users?q=" + animesama::txt::url_encode(q) + "&limit=1");
+        if (sr.ok()) {
+            json_error_t jerr;
+            json_t* sroot = json_loads(sr.body.c_str(), 0, &jerr);
+            json_t* col = sroot ? json_object_get(sroot, "collection") : nullptr;
+            if (json_is_array(col) && json_array_size(col) > 0) {
+                json_t* u0 = json_array_get(col, 0);
+                json_t* jid = json_object_get(u0, "id");
+                std::string uid;
+                if (json_is_integer(jid)) uid = std::to_string((long long)json_integer_value(jid));
+                else if (json_is_string(jid)) uid = json_string_value(jid);
+                std::string uname = jstr(u0, "username");
+                json_decref(sroot);
+                if (!uid.empty()) {
+                    store::set_str(KEY_USER_ID, uid);
+                    store::set_str(KEY_USERNAME, uname.empty() ? q : uname);
+                    log_message(LOG_OK, "SoundCloud", "Connected via user search: %s (id=%s)", uname.c_str(), uid.c_str());
+                    return true;
+                }
+            } else if (sroot) {
+                json_decref(sroot);
+            }
+        }
         err = r.error.empty() ? ("Profil introuvable (HTTP " + std::to_string(r.status) + ")") : r.error;
         return false;
     }
