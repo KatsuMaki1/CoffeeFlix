@@ -5,7 +5,7 @@
 #include <cstring>
 
 #include "core/http.hpp"
-#include "core/log.hpp"
+#include "platform/logger.hpp"
 #include "services/animesama_text.hpp"
 
 namespace animesama {
@@ -328,3 +328,4 @@ int check_stream_health(const Stream& st) {
 }
 
 }  // namespace animesama
+

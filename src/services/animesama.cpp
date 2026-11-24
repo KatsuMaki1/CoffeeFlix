@@ -9,7 +9,7 @@
 #include <mutex>
 
 #include "core/http.hpp"
-#include "core/log.hpp"
+#include "platform/logger.hpp"
 #include "services/animesama_text.hpp"
 
 namespace animesama {
@@ -605,3 +605,4 @@ player::Source make_source(const AnimeInfo& info, const Season& season, const Ep
 }
 
 }  // namespace animesama
+

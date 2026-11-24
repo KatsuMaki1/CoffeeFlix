@@ -46,7 +46,7 @@ public:
         gfx::fill_rrect(poster_r, 12, t.surface);
         if (const images::Image* img = images::get(anime_.cover, 300, 420)) {
             if (img->tex) {
-                gfx::draw_image_cover(img->tex, img->w, img->h, poster_r, 12, Color(255, 255, 255, 255));
+                gfx::image_cover(img->tex, img->w, img->h, poster_r, 12, Color(255, 255, 255, 255));
             }
         }
 
@@ -304,3 +304,4 @@ private:
 std::unique_ptr<app::Screen> make_animesama() { return std::make_unique<AnimeSamaScreen>(); }
 
 }  // namespace screens
+
