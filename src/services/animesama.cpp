@@ -617,14 +617,36 @@ player::Source source_from_resume(const std::string& id, const std::string& titl
     src.start = position;
     src.user_agent = UA;
     src.chunked_http = true;
-    src.resolve = [id, subtitle, extra](player::Source& s, std::string& err) -> bool {
+    src.resolve = [id, title, subtitle, image, extra](player::Source& s, std::string& err) -> bool {
         std::string page_url = extra;
         int ep_num = 1;
-        size_t hash = id.rfind('#');
-        if (hash != std::string::npos) {
-            if (page_url.empty()) page_url = id.substr(0, hash);
-            ep_num = atoi(id.substr(hash + 1).c_str());
+        size_t hash2 = id.rfind('#');
+        if (hash2 != std::string::npos) {
+            ep_num = atoi(id.substr(hash2 + 1).c_str());
             if (ep_num < 1) ep_num = 1;
+            if (page_url.empty()) {
+                std::string prefix = id.substr(0, hash2);
+                size_t hash1 = prefix.find('#');
+                if (hash1 != std::string::npos) {
+                    // Legacy history format: "<anime_url>#<season_name>#<ep>"
+                    std::string anime_url = prefix.substr(0, hash1);
+                    std::string season_name = prefix.substr(hash1 + 1);
+                    AnimeInfo info = get_info(SearchResult{title, anime_url, image});
+                    if (!info.error.empty() || info.seasons.empty()) {
+                        err = info.error.empty() ? "Anime introuvable" : info.error;
+                        return false;
+                    }
+                    page_url = info.seasons[0].url;
+                    for (const auto& sea : info.seasons) {
+                        if (txt::lower(sea.name) == txt::lower(season_name)) {
+                            page_url = sea.url;
+                            break;
+                        }
+                    }
+                } else {
+                    page_url = prefix;
+                }
+            }
         }
         if (page_url.empty()) {
             err = "Lien Anime-Sama manquant";
