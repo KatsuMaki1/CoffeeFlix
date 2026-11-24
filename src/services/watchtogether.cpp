@@ -35,6 +35,7 @@ SyncEvent g_pending;
 std::vector<ChatMsg> g_chat;
 
 std::atomic<bool> g_running{false};
+std::atomic<bool> g_stop{false};
 std::thread g_thread;
 
 double mono_sec() {
@@ -65,6 +66,7 @@ std::string normalize_code(std::string c) {
 
 void stop_thread() {
     g_running = false;
+    g_stop = true;
     if (g_thread.joinable()) g_thread.join();
 }
 
@@ -133,7 +135,7 @@ void poll_loop(std::string code) {
         http::Request req;
         req.url = "https://ntfy.sh/cfwt-" + code + "/json?since=" + since;
         req.timeout = 60;
-        req.cancel = &g_running;
+        req.cancel = &g_stop;
         req.headers.push_back({"User-Agent", "CoffeeFlix/1.0"});
         req.on_data = [&buf, &since](const http::Response&, const char* data, size_t size) -> bool {
             if (!g_running) return false;
@@ -163,6 +165,7 @@ void start_room(const std::string& code) {
         g_last_seen_msg_id.clear();
         g_has_pending = false;
     }
+    g_stop = false;
     g_running = true;
     g_thread = std::thread(poll_loop, code);
     log_message(LOG_OK, "WatchTogether", "Joined room %s", code.c_str());
