@@ -42,6 +42,7 @@ const SectionInfo SECTIONS[] = {
     {"search", app::SEC_SEARCH, N_("Search"), true, true},
     {"youtube", app::SEC_YOUTUBE, "YouTube", true, true},
     {"animesama", app::SEC_ANIMESAMA, "Anime-Sama", true, true},
+    {"streamsdl", app::SEC_STREAMSDL, "StreamsDL", true, true},
     {"jellyfin", app::SEC_JELLYFIN, "Jellyfin", true, true},
     {"navidrome", app::SEC_NAVIDROME, "Navidrome", true, true},
     {"twitch", app::SEC_TWITCH, "Twitch", true, true},

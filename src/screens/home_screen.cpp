@@ -332,6 +332,7 @@ private:
         const Tile tiles[] = {
             {"YouTube", tr("Search and watch"), ic::SMART_DISPLAY, app::SEC_YOUTUBE, 0xE53935},
             {"Anime-Sama", "VOSTFR & VF", ic::MOVIE, app::SEC_ANIMESAMA, 0xE11D48},
+            {"StreamsDL", "Films & Series", ic::VIDEO_LIBRARY, app::SEC_STREAMSDL, 0xF59E0B},
             {"Jellyfin", jellyfin::signed_in() ? tr("Your library") : tr("Connect your server"), ic::VIDEO_LIBRARY,
              app::SEC_JELLYFIN, 0x7E57C2},
             {"Navidrome", navidrome::signed_in() ? tr("Your music library") : tr("Connect your server"), ic::LIBRARY_MUSIC,
