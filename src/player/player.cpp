@@ -46,6 +46,7 @@ extern "C" {
 #include "player/orientation.hpp"
 #include "player/smb_io.hpp"
 #include "player/subtitles.hpp"
+#include "services/lastfm.hpp"
 #include "services/smb.hpp"
 
 // The Wii U build uses FFmpeg-wiiu (FFmpeg 4.3). The desktop preview uses the system FFmpeg, which
@@ -2026,6 +2027,10 @@ void report_progress(Session& s, bool force) {
         store::resume_save(r);
     }
     if (s.src.on_progress) s.src.on_progress(pos, s.state == PAUSED);
+    if (!s.has_video && s.has_audio && !s.live) {
+        lastfm::on_playback(s.src.id.empty() ? s.src.url : s.src.id, s.src.title, s.src.subtitle, pos, s.duration,
+                            s.state == PAUSED);
+    }
 }
 
 // Texture replacement/destruction waits for GPU reads before these references

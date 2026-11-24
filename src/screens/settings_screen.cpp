@@ -30,6 +30,7 @@
 #include "screens/send_logs.hpp"
 #include "screens/widgets.hpp"
 #include "services/jellyfin.hpp"
+#include "services/lastfm.hpp"
 #include "services/navidrome.hpp"
 #include "services/yt_account.hpp"
 #include "services/yt_recs.hpp"
@@ -864,6 +865,56 @@ public:
                                                       (a.server_name.empty() ? a.server : a.server_name).c_str())
                                           : tr("Not connected");
                 if (value_row(iid, Rect(x0, top, w, 64), "Navidrome", v.c_str(), ic::LIBRARY_MUSIC, g)) navidrome_account_menu();
+                track(iid, top, 64);
+            }
+            {
+                Id iid = id(g, "lastfm_key");
+                float top = row_h(64);
+                std::string k = lastfm::api_key();
+                if (value_row(iid, Rect(x0, top, w, 64), "Last.fm API Key", k.empty() ? tr("Not set") : "********",
+                              ic::MUSIC, g)) {
+                    prompt_text("Last.fm API Key", k, "API Key", [](std::string new_k) {
+                        std::string cur_s = lastfm::api_secret();
+                        prompt_text("Last.fm API Secret", cur_s, "Shared Secret", [new_k](std::string new_s) {
+                            lastfm::set_api_credentials(new_k, new_s);
+                            toast("Last.fm API configuree", ic::CHECK_CIRCLE);
+                        }, true);
+                    });
+                }
+                track(iid, top, 64);
+            }
+            {
+                Id iid = id(g, "lastfm");
+                float top = row_h(64);
+                std::string u = lastfm::username();
+                std::string v = lastfm::signed_in() ? u : tr("Not connected");
+                if (value_row(iid, Rect(x0, top, w, 64), "Last.fm", v.c_str(), ic::MUSIC, g)) {
+                    if (lastfm::signed_in()) {
+                        lastfm::sign_out();
+                        toast("Deconnecte de Last.fm", ic::INFO);
+                    } else {
+                        prompt_text("Last.fm", "", "Nom d'utilisateur", [](std::string user) {
+                            prompt_text("Mot de passe Last.fm", "", "Mot de passe", [user](std::string pass) {
+                                std::string err;
+                                if (lastfm::authenticate(user, pass, err)) {
+                                    toast(util::fmt("Connecte a Last.fm (%s)", lastfm::username().c_str()),
+                                          ic::CHECK_CIRCLE);
+                                } else {
+                                    toast(err.empty() ? "Connexion Last.fm echouee" : err, ic::ERROR_OUTLINE);
+                                }
+                            }, true);
+                        });
+                    }
+                }
+                track(iid, top, 64);
+            }
+            if (lastfm::signed_in()) {
+                Id iid = id(g, "lastfm_on");
+                float top = row_h(64);
+                bool on = lastfm::enabled();
+                if (toggle_row(iid, Rect(x0, top, w, 64), "Scrobbling Last.fm", nullptr, &on, g)) {
+                    lastfm::set_enabled(on);
+                }
                 track(iid, top, 64);
             }
             {
