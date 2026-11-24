@@ -17,6 +17,7 @@ std::unique_ptr<app::Screen> make_section_root(app::Section s);
 std::unique_ptr<app::Screen> make_home();
 std::unique_ptr<app::Screen> make_search();
 std::unique_ptr<app::Screen> make_youtube();
+std::unique_ptr<app::Screen> make_ytmusic();
 std::unique_ptr<app::Screen> make_animesama();
 std::unique_ptr<app::Screen> make_streamsdl();
 std::unique_ptr<app::Screen> make_jellyfin();

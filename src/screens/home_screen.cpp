@@ -331,6 +331,7 @@ private:
         struct Tile { const char* title; const char* sub; int icon; app::Section s; uint32_t color; };
         const Tile tiles[] = {
             {"YouTube", tr("Search and watch"), ic::SMART_DISPLAY, app::SEC_YOUTUBE, 0xE53935},
+            {"YT Music", "Songs & Albums", ic::MUSIC, app::SEC_YTMUSIC, 0xEF4444},
             {"Anime-Sama", "VOSTFR & VF", ic::MOVIE, app::SEC_ANIMESAMA, 0xE11D48},
             {"StreamsDL", "Films & Series", ic::VIDEO_LIBRARY, app::SEC_STREAMSDL, 0xF59E0B},
             {"Jellyfin", jellyfin::signed_in() ? tr("Your library") : tr("Connect your server"), ic::VIDEO_LIBRARY,
