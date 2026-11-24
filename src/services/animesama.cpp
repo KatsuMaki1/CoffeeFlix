@@ -589,12 +589,63 @@ player::Source make_source(const AnimeInfo& info, const Season& season, const Ep
     src.subtitle = season.name;
     src.artwork = info.cover;
     src.service = "animesama";
-    src.id = info.url + "#" + season.name + "#" + std::to_string(ep.number);
+    src.id = list.page_url + "#" + std::to_string(ep.number);
+    src.extra = list.page_url;
     src.user_agent = UA;
     src.chunked_http = true;
     src.resolve = [list, ep](player::Source& s, std::string& err) -> bool {
         Stream st;
         if (!resolve_episode(list, ep, st, err)) return false;
+        s.url = st.url;
+        s.chunked_http = (st.type == "mp4");
+        s.headers.clear();
+        if (!st.referer.empty()) s.headers.push_back({"Referer", st.referer});
+        return true;
+    };
+    return src;
+}
+
+player::Source source_from_resume(const std::string& id, const std::string& title, const std::string& subtitle,
+                                    const std::string& image, const std::string& extra, double position) {
+    player::Source src;
+    src.title = title;
+    src.subtitle = subtitle;
+    src.artwork = image;
+    src.service = "animesama";
+    src.id = id;
+    src.extra = extra;
+    src.start = position;
+    src.user_agent = UA;
+    src.chunked_http = true;
+    src.resolve = [id, subtitle, extra](player::Source& s, std::string& err) -> bool {
+        std::string page_url = extra;
+        int ep_num = 1;
+        size_t hash = id.rfind('#');
+        if (hash != std::string::npos) {
+            if (page_url.empty()) page_url = id.substr(0, hash);
+            ep_num = atoi(id.substr(hash + 1).c_str());
+            if (ep_num < 1) ep_num = 1;
+        }
+        if (page_url.empty()) {
+            err = "Lien Anime-Sama manquant";
+            return false;
+        }
+        Lang lang = txt::ends_with(txt::lower(page_url), "/vf") ? Lang::VF : Lang::VOSTFR;
+        EpisodeList list = get_episodes(Season{subtitle, page_url}, lang);
+        if (!list.error.empty() || list.episodes.empty()) {
+            err = list.error.empty() ? "Episode introuvable" : list.error;
+            return false;
+        }
+        const Episode* target = nullptr;
+        for (const auto& ep : list.episodes) {
+            if (ep.number == ep_num) {
+                target = &ep;
+                break;
+            }
+        }
+        if (!target) target = &list.episodes[0];
+        Stream st;
+        if (!resolve_episode(list, *target, st, err)) return false;
         s.url = st.url;
         s.chunked_http = (st.type == "mp4");
         s.headers.clear();

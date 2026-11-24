@@ -15,6 +15,7 @@
 #include "screens/game_library.hpp"
 #endif
 #include "screens/widgets.hpp"
+#include "services/animesama.hpp"
 #include "services/jellyfin.hpp"
 #include "services/navidrome.hpp"
 #include "services/podcasts.hpp"
@@ -66,6 +67,11 @@ HomeItem from_resume(const store::Resume& r) {
         v.channel = r.subtitle;
         h.open = [v] { yt::play(v); };
         h.more = [v] { yt::video_menu(v); };
+    } else if (r.service == "animesama") {
+        h.icon = ic::MOVIE;
+        h.service = "Anime-Sama";
+        h.image = h.hero = r.image;
+        h.open = [r] { play_video(animesama::source_from_resume(r.id, r.title, r.subtitle, r.image, r.extra, r.position)); };
     } else if (r.service == "podcast") {
         h.icon = ic::PODCASTS;
         h.service = tr("Podcast");

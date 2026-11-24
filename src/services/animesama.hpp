@@ -63,6 +63,8 @@ EpisodeList get_episodes(const Season& season, Lang lang);
 bool resolve_episode(const EpisodeList& list, const Episode& ep, Stream& out, std::string& err);
 
 player::Source make_source(const AnimeInfo& info, const Season& season, const EpisodeList& list, const Episode& ep);
+player::Source source_from_resume(const std::string& id, const std::string& title, const std::string& subtitle,
+                                    const std::string& image, const std::string& extra, double position);
 
 // Internal resolver helpers
 bool resolve_video_url(const std::string& url, Stream& out);
@@ -70,3 +72,4 @@ int check_stream_health(const Stream& stream);
 std::string unpack_packer(const std::string& html);
 
 }  // namespace animesama
+

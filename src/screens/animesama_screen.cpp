@@ -99,11 +99,13 @@ public:
                 load_episodes();
             }
         }
+        if (focus_in_group(lg)) page_.focus_range(0, y + 60 + page_.scroll());
         y += 58;
 
         // Season chips
         Id sg = id(g, "seasons");
         float sx = x0;
+        float sy0 = y;
         for (size_t i = 0; i < info_.seasons.size(); i++) {
             float cw = std::max(110.0f, text::measure(font::body_bold, info_.seasons[i].name) + 36.0f);
             if (sx + cw > W - 60) {
@@ -119,6 +121,7 @@ public:
             }
             sx += cw + 12;
         }
+        if (focus_in_group(sg)) page_.focus_range(sy0 + page_.scroll() - 20, y + 52 + page_.scroll());
         y += 64;
 
         // Episodes
@@ -141,10 +144,14 @@ public:
                 int col = (int)(i % cols);
                 int row = (int)(i / cols);
                 Rect br(x0 + col * (bw + gap), y + row * (bh + 14), bw, bh);
+                Id bid = id(eg, (int64_t)i);
                 std::string label = util::fmt("Episode %d", eps_.episodes[i].number);
                 int flags = (i == 0) ? F_DEFAULT : 0;
-                if (button(id(eg, (int64_t)i), br, label.c_str(), ic::PLAY, BTN_NORMAL, eg, flags)) {
+                if (button(bid, br, label.c_str(), ic::PLAY, BTN_NORMAL, eg, flags)) {
                     play_from((int)i);
+                }
+                if (ui::focused() == bid) {
+                    page_.focus_range(br.y + page_.scroll() - 20, br.b() + page_.scroll() + 20);
                 }
             }
             int rows = ((int)eps_.episodes.size() + cols - 1) / cols;
