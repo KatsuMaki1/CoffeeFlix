@@ -44,6 +44,7 @@ const SectionInfo SECTIONS[] = {
     {"ytmusic", app::SEC_YTMUSIC, "YT Music", true, true},
     {"animesama", app::SEC_ANIMESAMA, "Anime-Sama", true, true},
     {"streamsdl", app::SEC_STREAMSDL, "StreamsDL", true, true},
+    {"freetv", app::SEC_FREETV, "TV & Freebox", true, true},
     {"jellyfin", app::SEC_JELLYFIN, "Jellyfin", true, true},
     {"navidrome", app::SEC_NAVIDROME, "Navidrome", true, true},
     {"twitch", app::SEC_TWITCH, "Twitch", true, true},
