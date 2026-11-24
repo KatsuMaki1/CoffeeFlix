@@ -89,6 +89,12 @@ void fetch_async(std::string key, std::string title, std::string artist, double 
         std::string ct = clean_track_title(title);
         std::string ca = animesama::txt::trim(artist);
 
+        // Strip YT Music metadata suffixes like "Artist • Album • 2:40"
+        for (const char* sep : {" \xe2\x80\xa2 ", " \xc2\xb7 ", " | "}) {
+            size_t sp = ca.find(sep);
+            if (sp != std::string::npos) ca = animesama::txt::trim(ca.substr(0, sp));
+        }
+
         // If title contains "Artist - Track", split it when artist looks generic
         size_t dash = ct.find(" - ");
         if (dash != std::string::npos && (ca.empty() || animesama::txt::contains_ci(ca, "topic") ||
@@ -124,23 +130,28 @@ void fetch_async(std::string key, std::string title, std::string artist, double 
             }
         }
 
-        // 2. Fallback /api/search
+        // 2. Fallback /api/search with artist + track, then track only
         if (synced_lrc.empty()) {
-            std::string q = ca.empty() ? ct : (ca + " " + ct);
-            http::Response sr =
-                http::get("https://lrclib.net/api/search?q=" + animesama::txt::url_encode(q),
-                          {{"User-Agent", "CoffeeFlix/1.0"}}, 10);
-            if (sr.ok()) {
-                json_error_t jerr;
-                json_t* arr = json_loads(sr.body.c_str(), 0, &jerr);
-                if (json_is_array(arr)) {
-                    size_t i;
-                    json_t* el;
-                    json_array_foreach(arr, i, el) {
-                        if (try_extract(el)) break;
+            std::vector<std::string> queries;
+            if (!ca.empty()) queries.push_back(ca + " " + ct);
+            queries.push_back(ct);
+            for (const auto& q : queries) {
+                http::Response sr =
+                    http::get("https://lrclib.net/api/search?q=" + animesama::txt::url_encode(q),
+                              {{"User-Agent", "CoffeeFlix/1.0"}}, 10);
+                if (sr.ok()) {
+                    json_error_t jerr;
+                    json_t* arr = json_loads(sr.body.c_str(), 0, &jerr);
+                    if (json_is_array(arr)) {
+                        size_t i;
+                        json_t* el;
+                        json_array_foreach(arr, i, el) {
+                            if (try_extract(el)) break;
+                        }
                     }
+                    if (arr) json_decref(arr);
                 }
-                if (arr) json_decref(arr);
+                if (!synced_lrc.empty()) break;
             }
         }
 
