@@ -1407,7 +1407,14 @@ public:
     bool fullscreen() const override { return true; }
     bool tv_scene() const override { return true; }
     bool draws_background() const override { return true; }
-    bool on_back() override { return menu_.open; }
+    bool on_back() override {
+        if (menu_.open) return true;
+        if (lofi_) {
+            lofi_ = false;
+            return true;
+        }
+        return false;
+    }
 
     void frame() override {
         const Theme& t = theme();
@@ -1423,9 +1430,114 @@ public:
         const Rect ar(110, 150, 380, 380);
         const Rect sr = ar.scaled(1.0f + 0.025f * beat * (st == player::PLAYING ? 1 : 0));
         const float x = 560, w = W - x - 90;
+        auto draw_lofi = [&] {
+            double tm = ui::time();
+            double pos = player::position(), dur = player::duration();
+
+            // Occasional distant lightning flash every ~9.5s
+            float cyc = (float)std::fmod(tm, 9.5);
+            float flash = 0.0f;
+            if (cyc > 8.6f && cyc < 8.75f) flash = 0.55f;
+            else if (cyc > 8.85f && cyc < 8.95f) flash = 0.85f;
+
+            // Stormy night sky gradient
+            Color top_c = gfx::lerp(Color(8, 11, 24, 255), Color(70, 88, 130, 255), flash * 0.45f);
+            Color bot_c = gfx::lerp(Color(24, 18, 36, 255), Color(95, 105, 145, 255), flash * 0.35f);
+            gfx::fill_rect_vgrad(Rect(0, 0, W, H), top_c, bot_c);
+
+            // Soft moon glow behind storm clouds
+            float mx = W * 0.76f, my = 145.0f;
+            gfx::glow(Rect(mx - 140, my - 140, 280, 280), Color(180, 205, 255, (uint8_t)(42 + 45 * flash)));
+            gfx::fill_circle(mx, my, 42, Color(230, 238, 255, 200));
+
+            // Drifting storm clouds
+            for (int i = 0; i < 6; i++) {
+                float cx = std::fmod(i * 290.0f + (float)tm * (10.0f + (i % 3) * 4.0f), W + 420.0f) - 210.0f;
+                float cy = 70.0f + (i % 3) * 58.0f;
+                Color cc = gfx::lerp(Color(20, 25, 44, 175), Color(90, 105, 145, 190), flash * 0.5f);
+                gfx::fill_rrect(Rect(cx, cy, 320, 66), 33, cc);
+                gfx::fill_rrect(Rect(cx + 55, cy - 22, 190, 56), 28, cc);
+            }
+
+            // Warm study lamp / room glow on the left
+            float pulse = 0.5f + 0.5f * std::sin((float)tm * 0.9f);
+            gfx::glow(Rect(-120, H - 520, 620, 520), Color(255, 160, 65, (uint8_t)(45 + 18 * pulse)));
+
+            // Cozy city skyline + warm lit windows at the bottom
+            const int b_heights[] = {175, 235, 150, 270, 195, 250, 165, 220, 285, 185, 240, 160, 210};
+            float bx = 0.0f;
+            float bw = W / 13.0f + 2.0f;
+            for (int i = 0; i < 13; i++) {
+                float bh = (float)b_heights[i];
+                Rect bldg(bx, H - bh, bw, bh);
+                gfx::fill_rect(bldg, Color(10, 12, 22, 235));
+                // Lit apartment windows
+                for (float wy = H - bh + 22; wy < H - 40; wy += 30) {
+                    for (float wx = bx + 14; wx < bx + bw - 18; wx += 22) {
+                        int hval = ((int)wx * 31 + (int)wy * 17 + i * 13) % 11;
+                        if (hval < 3) {
+                            Color wc = (hval == 0) ? Color(255, 190, 95, 175) : Color(255, 220, 145, 120);
+                            gfx::fill_rrect(Rect(wx, wy, 10, 14), 2, wc);
+                        }
+                    }
+                }
+                bx += bw - 2.0f;
+            }
+
+            // Heavy diagonal rain streaks
+            for (int i = 0; i < 56; i++) {
+                float speed = 440.0f + (i % 5) * 90.0f;
+                float rx = std::fmod(i * 173.7f + (float)tm * 85.0f, (float)W);
+                float ry = std::fmod(i * 91.3f + (float)tm * speed, (float)H);
+                uint8_t ra = (uint8_t)(45 + (i % 4) * 20 + flash * 50);
+                gfx::fill_rect(Rect(rx, ry, 2.0f, 22.0f + (i % 3) * 10.0f), Color(195, 218, 255, ra));
+            }
+
+            // Warm floating fireflies / dust motes
+            for (int i = 0; i < 14; i++) {
+                float fx = std::fmod(i * 237.0f + std::sin((float)tm * 0.55f + i) * 40.0f + (float)W, (float)W);
+                float fy = std::fmod(H - std::fmod(i * 89.0f + (float)tm * (18.0f + (i % 4) * 7.0f), (float)H), (float)H);
+                gfx::fill_circle(fx, fy, 2.5f + (i % 2), Color(255, 200, 115, 110));
+            }
+
+            // Focus timer badge (top left)
+            int fsec = std::max(0, (int)(tm - lofi_started_at_));
+            std::string fstr = util::fmt("Focus  %02d:%02d", fsec / 60, fsec % 60);
+            Rect fbadge(54, 42, std::max(175.0f, text::measure(font::body_bold, fstr) + 56.0f), 42);
+            gfx::fill_rrect(fbadge, 21, Color(14, 16, 28, 195));
+            text::icon(ic::LOCAL_CAFE, 22, fbadge.x + 24, fbadge.cy(), Color(255, 190, 95, 255));
+            text::draw(font::body_bold, fbadge.x + 44, fbadge.y + 9, fstr, gfx::WHITE);
+
+            // Cozy bottom-left track HUD
+            Rect hud(54, H - 156, 620, 108);
+            gfx::fill_rrect(hud, 18, Color(12, 14, 24, 205));
+            Rect thumb(hud.x + 14, hud.y + 14, 80, 80);
+            const images::Image* img = art.empty() ? nullptr : images::get(art, 200, 200);
+            if (img && img->ready) {
+                gfx::image_cover(img->tex, img->w, img->h, thumb, 12);
+            } else {
+                gfx::fill_rrect_vgrad(thumb, 12, t.accent, t.accent2);
+                text::icon(ic::MUSIC, 34, thumb.cx(), thumb.cy(), gfx::WHITE);
+            }
+            text::draw_fit(font::title, thumb.r() + 18, hud.y + 18, hud.w - 130,
+                           src.title.empty() ? tr("Unknown") : src.title, gfx::WHITE);
+            if (!src.subtitle.empty()) {
+                text::draw_fit(font::body, thumb.r() + 18, hud.y + 54, hud.w - 130, src.subtitle,
+                               Color(210, 215, 230, 200));
+            }
+            if (!player::live() && dur > 0) {
+                progress_bar(Rect(thumb.r() + 18, hud.b() - 18, hud.w - 130, 5), (float)(pos / dur),
+                             (float)(player::buffered_until() / dur));
+            }
+        };
+
         // Draw the same artwork/track information on both screens, but process controls
         // only once, on the GamePad in a split view. Animation state also advances once.
         auto draw_body = [&] {
+            if (lofi_) {
+                draw_lofi();
+                return;
+            }
 
             // Blurred cover as the whole backdrop.
             gfx::fill_rect_vgrad(Rect(0, 0, W, H), t.bg_top, t.bg_bottom);
@@ -1562,6 +1674,28 @@ public:
         view_button(id("np_view_button"), Rect(W - 64 - view_button_width(), 28, view_button_width(), 52),
                     id("np_controls"), !menu_.open);
 
+        if (lofi_) {
+            Id lg = id("np_lofi");
+            bool paused = st == player::PAUSED;
+            float bx = W - 470, by = H - 104;
+            if (button(id(lg, "play"), Rect(bx, by, 120, 48), paused ? "Play" : "Pause",
+                       paused ? ic::PLAY : ic::PAUSE, BTN_NORMAL, lg)) {
+                if (player::started()) player::toggle_pause();
+            }
+            if (player::has_next()) {
+                if (button(id(lg, "next"), Rect(bx + 132, by, 130, 48), "Suivant", ic::SKIP_NEXT, BTN_NORMAL, lg)) {
+                    player::next();
+                }
+            }
+            if (button(id(lg, "exit"), Rect(W - 196, by, 146, 48), "Quitter", ic::LOCAL_CAFE, BTN_PRIMARY, lg, F_DEFAULT)) {
+                lofi_ = false;
+            }
+            Input& in = input();
+            if (in.pressed_(BTN_ZR) || in.pressed_(BTN_R)) player::seek_relative(30);
+            if (in.pressed_(BTN_ZL) || in.pressed_(BTN_L)) player::seek_relative(-15);
+            return;
+        }
+
         // Controls
         Id g = id("np_controls");
         float cy = 630, cx = x + 36;
@@ -1594,7 +1728,10 @@ public:
             if (icon_button(id(g, "karaoke"), cx, cy, 28, ic::SUBTITLES, g, 0, karaoke_)) karaoke_ = !karaoke_;
             cx += 84;
         }
-        if (icon_button(id(g, "lofi"), cx, cy, 28, ic::LOCAL_CAFE, g, 0, lofi_)) lofi_ = !lofi_;
+        if (icon_button(id(g, "lofi"), cx, cy, 28, ic::LOCAL_CAFE, g, 0, lofi_)) {
+            lofi_ = !lofi_;
+            if (lofi_) lofi_started_at_ = ui::time();
+        }
         if (split) {
             const int sound = pad_views::remote_sound();
             const char* label = sound == 1 ? tr("Sound: GamePad only") : sound == 2 ? tr("Sound: TV and GamePad") : tr("Sound: TV only");
@@ -1619,6 +1756,7 @@ private:
     TrackMenu menu_;
     bool karaoke_ = false;
     bool lofi_ = false;
+    double lofi_started_at_ = 0.0;
 };
 
 }  // namespace
