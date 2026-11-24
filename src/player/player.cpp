@@ -49,6 +49,7 @@ extern "C" {
 #include "services/lastfm.hpp"
 #include "services/mal.hpp"
 #include "services/smb.hpp"
+#include "services/watchtogether.hpp"
 
 // The Wii U build uses FFmpeg-wiiu (FFmpeg 4.3). The desktop preview uses the system FFmpeg, which
 // describes audio channels with AVChannelLayout from 5.1 on and dropped the old fields in 7.0.
@@ -2035,6 +2036,7 @@ void report_progress(Session& s, bool force) {
     if (s.has_video && !s.live && !s.src.service.empty()) {
         mal::on_progress(s.src.service, s.src.id, s.src.title, s.src.subtitle, pos, s.duration);
     }
+    watchtogether::on_local_playback(s.src, pos, s.state == PAUSED, s.has_video, force);
 }
 
 // Texture replacement/destruction waits for GPU reads before these references

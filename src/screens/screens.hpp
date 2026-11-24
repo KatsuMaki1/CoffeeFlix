@@ -23,6 +23,8 @@ std::unique_ptr<app::Screen> make_animesama();
 std::unique_ptr<app::Screen> make_mangadex();
 std::unique_ptr<app::Screen> make_streamsdl();
 std::unique_ptr<app::Screen> make_freetv();
+std::unique_ptr<app::Screen> make_watchtogether();
+void poll_watchtogether();
 std::unique_ptr<app::Screen> make_jellyfin();
 std::unique_ptr<app::Screen> make_navidrome();
 std::unique_ptr<app::Screen> make_twitch();

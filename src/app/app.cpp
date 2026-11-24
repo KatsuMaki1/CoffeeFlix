@@ -85,6 +85,7 @@ const RailEntry RAIL[] = {
     {SEC_MANGADEX, ic::BOOK, "MangaDex"},
     {SEC_STREAMSDL, ic::VIDEO_LIBRARY, "StreamsDL"},
     {SEC_FREETV, ic::LIVE_TV, "TV & Freebox"},
+    {SEC_WATCHTOGETHER, ic::PEOPLE, "WatchTogether"},
     {SEC_JELLYFIN, ic::VIDEO_LIBRARY, "Jellyfin"},
     {SEC_NAVIDROME, ic::LIBRARY_MUSIC, "Navidrome"},
     {SEC_TWITCH, ic::LIVE_TV, "Twitch"},
@@ -913,6 +914,7 @@ int run(int, char**) {
             player::resume_video();
         }
         player::update();
+        screens::poll_watchtogether();
         {   // the sleep timer: stops what plays, with the sound fading out before, or at the end of this one
             const bool ended = player::state() == player::ENDED;
             if (!ended) sleep_timer::item_left();
