@@ -1433,64 +1433,104 @@ public:
         auto draw_lofi = [&] {
             double tm = ui::time();
             double pos = player::position(), dur = player::duration();
-
-            // Occasional distant lightning flash every ~9.5s
-            float cyc = (float)std::fmod(tm, 9.5);
-            float flash = 0.0f;
-            if (cyc > 8.6f && cyc < 8.75f) flash = 0.55f;
-            else if (cyc > 8.85f && cyc < 8.95f) flash = 0.85f;
-
-            // Stormy night sky gradient
-            Color top_c = gfx::lerp(Color(8, 11, 24, 255), Color(70, 88, 130, 255), flash * 0.45f);
-            Color bot_c = gfx::lerp(Color(24, 18, 36, 255), Color(95, 105, 145, 255), flash * 0.35f);
-            gfx::fill_rect_vgrad(Rect(0, 0, W, H), top_c, bot_c);
-
-            // Soft moon glow behind storm clouds
-            float mx = W * 0.76f, my = 145.0f;
-            gfx::glow(Rect(mx - 140, my - 140, 280, 280), Color(180, 205, 255, (uint8_t)(42 + 45 * flash)));
-            gfx::fill_circle(mx, my, 42, Color(230, 238, 255, 200));
-
-            // Drifting storm clouds
-            for (int i = 0; i < 6; i++) {
-                float cx = std::fmod(i * 290.0f + (float)tm * (10.0f + (i % 3) * 4.0f), W + 420.0f) - 210.0f;
-                float cy = 70.0f + (i % 3) * 58.0f;
-                Color cc = gfx::lerp(Color(20, 25, 44, 175), Color(90, 105, 145, 190), flash * 0.5f);
-                gfx::fill_rrect(Rect(cx, cy, 320, 66), 33, cc);
-                gfx::fill_rrect(Rect(cx + 55, cy - 22, 190, 56), 28, cc);
-            }
-
-            // Warm study lamp / room glow on the left
             float pulse = 0.5f + 0.5f * std::sin((float)tm * 0.9f);
-            gfx::glow(Rect(-120, H - 520, 620, 520), Color(255, 160, 65, (uint8_t)(45 + 18 * pulse)));
 
-            // Cozy city skyline + warm lit windows at the bottom
-            const int b_heights[] = {175, 235, 150, 270, 195, 250, 165, 220, 285, 185, 240, 160, 210};
-            float bx = 0.0f;
-            float bw = W / 13.0f + 2.0f;
-            for (int i = 0; i < 13; i++) {
-                float bh = (float)b_heights[i];
-                Rect bldg(bx, H - bh, bw, bh);
-                gfx::fill_rect(bldg, Color(10, 12, 22, 235));
-                // Lit apartment windows
-                for (float wy = H - bh + 22; wy < H - 40; wy += 30) {
-                    for (float wx = bx + 14; wx < bx + bw - 18; wx += 22) {
-                        int hval = ((int)wx * 31 + (int)wy * 17 + i * 13) % 11;
-                        if (hval < 3) {
-                            Color wc = (hval == 0) ? Color(255, 190, 95, 175) : Color(255, 220, 145, 120);
-                            gfx::fill_rrect(Rect(wx, wy, 10, 14), 2, wc);
+            if (lofi_theme_ == 0) {
+                // 0: Orage (Stormy Night City)
+                float cyc = (float)std::fmod(tm, 9.5);
+                float flash = (cyc > 8.6f && cyc < 8.75f) ? 0.55f : (cyc > 8.85f && cyc < 8.95f) ? 0.85f : 0.0f;
+                Color top_c = gfx::lerp(Color(8, 11, 24, 255), Color(70, 88, 130, 255), flash * 0.45f);
+                Color bot_c = gfx::lerp(Color(24, 18, 36, 255), Color(95, 105, 145, 255), flash * 0.35f);
+                gfx::fill_rect_vgrad(Rect(0, 0, W, H), top_c, bot_c);
+
+                float mx = W * 0.76f, my = 145.0f;
+                gfx::glow(Rect(mx - 140, my - 140, 280, 280), Color(180, 205, 255, (uint8_t)(42 + 45 * flash)));
+                gfx::fill_circle(mx, my, 42, Color(230, 238, 255, 200));
+
+                for (int i = 0; i < 6; i++) {
+                    float cx = std::fmod(i * 290.0f + (float)tm * (10.0f + (i % 3) * 4.0f), W + 420.0f) - 210.0f;
+                    float cy = 70.0f + (i % 3) * 58.0f;
+                    Color cc = gfx::lerp(Color(20, 25, 44, 175), Color(90, 105, 145, 190), flash * 0.5f);
+                    gfx::fill_rrect(Rect(cx, cy, 320, 66), 33, cc);
+                    gfx::fill_rrect(Rect(cx + 55, cy - 22, 190, 56), 28, cc);
+                }
+                gfx::glow(Rect(-120, H - 520, 620, 520), Color(255, 160, 65, (uint8_t)(45 + 18 * pulse)));
+
+                const int b_heights[] = {175, 235, 150, 270, 195, 250, 165, 220, 285, 185, 240, 160, 210};
+                float bx = 0.0f, bw = W / 13.0f + 2.0f;
+                for (int i = 0; i < 13; i++) {
+                    float bh = (float)b_heights[i];
+                    gfx::fill_rect(Rect(bx, H - bh, bw, bh), Color(10, 12, 22, 235));
+                    for (float wy = H - bh + 22; wy < H - 40; wy += 30) {
+                        for (float wx = bx + 14; wx < bx + bw - 18; wx += 22) {
+                            int hval = ((int)wx * 31 + (int)wy * 17 + i * 13) % 11;
+                            if (hval < 3) {
+                                Color wc = (hval == 0) ? Color(255, 190, 95, 175) : Color(255, 220, 145, 120);
+                                gfx::fill_rrect(Rect(wx, wy, 10, 14), 2, wc);
+                            }
                         }
                     }
+                    bx += bw - 2.0f;
                 }
-                bx += bw - 2.0f;
-            }
-
-            // Heavy diagonal rain streaks
-            for (int i = 0; i < 56; i++) {
-                float speed = 440.0f + (i % 5) * 90.0f;
-                float rx = std::fmod(i * 173.7f + (float)tm * 85.0f, (float)W);
-                float ry = std::fmod(i * 91.3f + (float)tm * speed, (float)H);
-                uint8_t ra = (uint8_t)(45 + (i % 4) * 20 + flash * 50);
-                gfx::fill_rect(Rect(rx, ry, 2.0f, 22.0f + (i % 3) * 10.0f), Color(195, 218, 255, ra));
+                for (int i = 0; i < 56; i++) {
+                    float speed = 440.0f + (i % 5) * 90.0f;
+                    float rx = std::fmod(i * 173.7f + (float)tm * 85.0f, (float)W);
+                    float ry = std::fmod(i * 91.3f + (float)tm * speed, (float)H);
+                    uint8_t ra = (uint8_t)(45 + (i % 4) * 20 + flash * 50);
+                    gfx::fill_rect(Rect(rx, ry, 2.0f, 22.0f + (i % 3) * 10.0f), Color(195, 218, 255, ra));
+                }
+            } else if (lofi_theme_ == 1) {
+                // 1: Cheminee (Cozy Fireplace & Sparks)
+                gfx::fill_rect_vgrad(Rect(0, 0, W, H), Color(18, 9, 8, 255), Color(42, 18, 10, 255));
+                float fx = W * 0.5f, fy = H - 150.0f;
+                gfx::glow(Rect(fx - 380, fy - 340, 760, 560), Color(255, 115, 35, (uint8_t)(75 + 25 * pulse)));
+                gfx::fill_rrect(Rect(fx - 220, H - 230, 440, 230), 24, Color(24, 14, 12, 235));
+                gfx::fill_rrect(Rect(fx - 170, H - 195, 340, 195), 18, Color(12, 7, 7, 255));
+                for (int i = 0; i < 9; i++) {
+                    float wv = std::sin((float)tm * (3.2f + i * 0.4f) + i) * 14.0f;
+                    float fw = 48.0f + (i % 3) * 18.0f;
+                    float fh = 80.0f + std::sin((float)tm * 4.5f + i * 1.7f) * 28.0f + (i % 2) * 24.0f;
+                    float ox = fx - 125.0f + i * 31.0f + wv * 0.4f;
+                    Color fc = (i % 2 == 0) ? Color(255, 120, 30, 185) : Color(255, 195, 70, 165);
+                    gfx::fill_rrect(Rect(ox - fw * 0.5f, H - 40.0f - fh, fw, fh), fw * 0.5f, fc);
+                }
+                for (int i = 0; i < 24; i++) {
+                    float sx = fx + std::sin((float)tm * 1.4f + i * 2.1f) * 140.0f;
+                    float sy = H - 60.0f - std::fmod(i * 47.0f + (float)tm * (65.0f + (i % 4) * 20.0f), H * 0.78f);
+                    gfx::fill_circle(sx, sy, 2.2f + (i % 2), Color(255, 200, 90, 155));
+                }
+            } else if (lofi_theme_ == 2) {
+                // 2: Espace (Cosmic Nebula & Shooting Stars)
+                gfx::fill_rect_vgrad(Rect(0, 0, W, H), Color(5, 6, 18, 255), Color(20, 12, 42, 255));
+                gfx::glow(Rect(W * 0.15f, 80, 560, 440), Color(145, 75, 255, (uint8_t)(48 + 18 * pulse)));
+                gfx::glow(Rect(W * 0.50f, 220, 580, 420), Color(55, 190, 255, (uint8_t)(40 + 18 * pulse)));
+                for (int i = 0; i < 65; i++) {
+                    float sx = std::fmod(i * 193.1f + (float)tm * (4.0f + (i % 3) * 3.0f), (float)W);
+                    float sy = std::fmod(i * 127.7f, (float)H);
+                    float tw = 0.5f + 0.5f * std::sin((float)tm * (1.8f + (i % 4) * 0.7f) + i);
+                    gfx::fill_circle(sx, sy, 1.4f + (i % 2) * 1.1f, Color(235, 242, 255, (uint8_t)(70 + 165 * tw)));
+                }
+                float sc = (float)std::fmod(tm, 5.5);
+                if (sc < 0.7f) {
+                    float p = sc / 0.7f;
+                    float sx = W * 0.85f - p * 680.0f, sy = 70.0f + p * 280.0f;
+                    gfx::fill_circle(sx, sy, 3.5f, gfx::WHITE);
+                    gfx::fill_rect(Rect(sx + 4, sy - 6, 48, 2), Color(200, 230, 255, 160));
+                }
+            } else {
+                // 3: Foret (Misty Rainy Forest & Fireflies)
+                gfx::fill_rect_vgrad(Rect(0, 0, W, H), Color(7, 20, 18, 255), Color(16, 38, 32, 255));
+                gfx::glow(Rect(W * 0.55f - 220, 60, 440, 440), Color(120, 235, 195, (uint8_t)(38 + 16 * pulse)));
+                for (int i = 0; i < 16; i++) {
+                    float tx = i * (W / 15.0f) - 20.0f;
+                    float th = 160.0f + (i % 4) * 55.0f;
+                    gfx::fill_rrect(Rect(tx, H - th, 74, th + 20), 37, Color(6, 16, 14, 235));
+                }
+                for (int i = 0; i < 42; i++) {
+                    float rx = std::fmod(i * 181.3f + (float)tm * 30.0f, (float)W);
+                    float ry = std::fmod(i * 97.1f + (float)tm * (320.0f + (i % 4) * 55.0f), (float)H);
+                    gfx::fill_rect(Rect(rx, ry, 2.0f, 18.0f), Color(165, 230, 210, 55));
+                }
             }
 
             // Warm floating fireflies / dust motes
@@ -1677,13 +1717,17 @@ public:
         if (lofi_) {
             Id lg = id("np_lofi");
             bool paused = st == player::PAUSED;
-            float bx = W - 470, by = H - 104;
-            if (button(id(lg, "play"), Rect(bx, by, 120, 48), paused ? "Play" : "Pause",
+            const char* tnames[] = {"Orage", "Cheminee", "Espace", "Foret"};
+            float bx = W - 610, by = H - 104;
+            if (button(id(lg, "theme"), Rect(bx, by, 145, 48), tnames[lofi_theme_ % 4], ic::PALETTE, BTN_NORMAL, lg)) {
+                lofi_theme_ = (lofi_theme_ + 1) % 4;
+            }
+            if (button(id(lg, "play"), Rect(bx + 157, by, 115, 48), paused ? "Play" : "Pause",
                        paused ? ic::PLAY : ic::PAUSE, BTN_NORMAL, lg)) {
                 if (player::started()) player::toggle_pause();
             }
             if (player::has_next()) {
-                if (button(id(lg, "next"), Rect(bx + 132, by, 130, 48), "Suivant", ic::SKIP_NEXT, BTN_NORMAL, lg)) {
+                if (button(id(lg, "next"), Rect(bx + 284, by, 120, 48), "Suivant", ic::SKIP_NEXT, BTN_NORMAL, lg)) {
                     player::next();
                 }
             }
@@ -1756,6 +1800,7 @@ private:
     TrackMenu menu_;
     bool karaoke_ = false;
     bool lofi_ = false;
+    int lofi_theme_ = 0;
     double lofi_started_at_ = 0.0;
 };
 
