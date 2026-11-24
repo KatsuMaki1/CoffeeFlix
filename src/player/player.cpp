@@ -3541,6 +3541,9 @@ void update() {
         }
     }
     if (st == PLAYING) report_progress(s, false);
+    if (st == PLAYING || st == PAUSED) {
+        watchtogether::on_local_playback(s.src, s.last_clock, st == PAUSED, s.has_video, false);
+    }
 }
 
 std::string take_skip_notice() {

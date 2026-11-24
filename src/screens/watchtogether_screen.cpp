@@ -112,9 +112,8 @@ void poll_watchtogether() {
             v.title = ev.title;
             v.channel = ev.subtitle;
             yt::play(v);
-        } else if (ev.service == "animesama") {
-            play_video(animesama::source_from_resume(ev.id, ev.title, ev.subtitle, ev.image, ev.extra, ev.pos));
         } else if (!ev.url.empty()) {
+            // Direct resolved stream URL (bypasses Cloudflare on anime-sama.to for the friend!)
             player::Source s;
             s.url = ev.url;
             s.title = ev.title;
@@ -124,8 +123,12 @@ void poll_watchtogether() {
             s.id = ev.id;
             s.extra = ev.extra;
             s.start = ev.pos;
+            s.chunked_http = ev.chunked;
+            if (!ev.referer.empty()) s.headers.push_back({"Referer", ev.referer});
             if (ev.has_video) play_video(s);
             else play_audio(s);
+        } else if (ev.service == "animesama") {
+            play_video(animesama::source_from_resume(ev.id, ev.title, ev.subtitle, ev.image, ev.extra, ev.pos));
         }
         return;
     }
@@ -137,7 +140,7 @@ void poll_watchtogether() {
         player::set_paused(ev.paused);
     }
     double cur_pos = player::position();
-    if (!player::live() && std::abs(ev.pos - cur_pos) > 3.5) {
+    if (!player::live() && std::abs(ev.pos - cur_pos) > 2.2) {
         player::seek(ev.pos);
     }
 }

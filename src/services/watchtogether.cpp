@@ -5,14 +5,13 @@
 #include <atomic>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <ctime>
 #include <mutex>
-#include <sstream>
 #include <thread>
 
 #include "core/http.hpp"
-#include "core/util.hpp"
 #include "logger/logger.hpp"
 #include "services/animesama_text.hpp"
 
@@ -26,6 +25,7 @@ std::string g_sender;
 std::string g_media_title;
 std::string g_last_sent_id;
 bool g_last_sent_paused = false;
+double g_last_sent_pos = 0.0;
 double g_last_sent_at = 0.0;
 double g_remote_applied_at = 0.0;
 std::string g_last_seen_msg_id;
@@ -67,59 +67,70 @@ void stop_thread() {
     if (g_thread.joinable()) g_thread.join();
 }
 
+void handle_line(const std::string& line, std::string& since) {
+    if (line.empty()) return;
+    json_error_t jerr;
+    json_t* env = json_loads(line.c_str(), 0, &jerr);
+    if (!env) return;
+    std::string ev = jstr(env, "event");
+    std::string mid = jstr(env, "id");
+    std::string msg = jstr(env, "message");
+    json_decref(env);
+
+    if (ev != "message" || mid.empty() || msg.empty()) return;
+    since = mid;
+
+    json_t* payload = json_loads(msg.c_str(), 0, &jerr);
+    if (!payload) return;
+
+    SyncEvent se;
+    se.sender = jstr(payload, "sender");
+    se.service = jstr(payload, "service");
+    se.id = jstr(payload, "id");
+    se.title = jstr(payload, "title");
+    se.subtitle = jstr(payload, "subtitle");
+    se.image = jstr(payload, "image");
+    se.extra = jstr(payload, "extra");
+    se.url = jstr(payload, "url");
+    se.referer = jstr(payload, "referer");
+    se.pos = json_number_value(json_object_get(payload, "pos"));
+    se.paused = json_is_true(json_object_get(payload, "paused"));
+    se.has_video = !json_is_false(json_object_get(payload, "has_video"));
+    se.chunked = json_is_true(json_object_get(payload, "chunked"));
+    json_decref(payload);
+
+    std::lock_guard<std::mutex> lk(g_mtx);
+    if (se.sender != g_sender && mid != g_last_seen_msg_id) {
+        g_last_seen_msg_id = mid;
+        g_pending = std::move(se);
+        g_has_pending = true;
+        if (!g_pending.title.empty()) g_media_title = g_pending.title;
+    }
+}
+
 void poll_loop(std::string code) {
-    std::string since = "30s";
+    std::string since = "10s";
     while (g_running) {
-        std::string url = "https://ntfy.sh/cfwt-" + code + "/json?poll=1&since=" + since;
-        http::Response r = http::get(url, {{"User-Agent", "CoffeeFlix/1.0"}}, 8);
-        if (!g_running) break;
-
-        if (r.ok() && !r.body.empty()) {
-            std::istringstream iss(r.body);
-            std::string line;
-            while (std::getline(iss, line)) {
-                if (line.empty()) continue;
-                json_error_t jerr;
-                json_t* env = json_loads(line.c_str(), 0, &jerr);
-                if (!env) continue;
-                std::string ev = jstr(env, "event");
-                std::string mid = jstr(env, "id");
-                std::string msg = jstr(env, "message");
-                json_decref(env);
-
-                if (ev != "message" || mid.empty() || msg.empty()) continue;
-                since = mid;
-
-                json_t* payload = json_loads(msg.c_str(), 0, &jerr);
-                if (!payload) continue;
-
-                SyncEvent se;
-                se.sender = jstr(payload, "sender");
-                se.service = jstr(payload, "service");
-                se.id = jstr(payload, "id");
-                se.title = jstr(payload, "title");
-                se.subtitle = jstr(payload, "subtitle");
-                se.image = jstr(payload, "image");
-                se.extra = jstr(payload, "extra");
-                se.url = jstr(payload, "url");
-                se.pos = json_number_value(json_object_get(payload, "pos"));
-                se.paused = json_is_true(json_object_get(payload, "paused"));
-                se.has_video = !json_is_false(json_object_get(payload, "has_video"));
-                json_decref(payload);
-
-                std::lock_guard<std::mutex> lk(g_mtx);
-                if (se.sender != g_sender && mid != g_last_seen_msg_id) {
-                    g_last_seen_msg_id = mid;
-                    g_pending = std::move(se);
-                    g_has_pending = true;
-                    if (!g_pending.title.empty()) g_media_title = g_pending.title;
-                }
+        std::string buf;
+        http::Request req;
+        req.url = "https://ntfy.sh/cfwt-" + code + "/json?since=" + since;
+        req.timeout = 60;
+        req.cancel = &g_running;
+        req.headers.push_back({"User-Agent", "CoffeeFlix/1.0"});
+        req.on_data = [&buf, &since](const http::Response&, const char* data, size_t size) -> bool {
+            if (!g_running) return false;
+            buf.append(data, size);
+            size_t nl = 0;
+            while ((nl = buf.find('\n')) != std::string::npos) {
+                std::string line = buf.substr(0, nl);
+                buf.erase(0, nl + 1);
+                handle_line(line, since);
             }
-        }
-
-        for (int i = 0; i < 15 && g_running; i++) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
+            return g_running.load();
+        };
+        http::perform(req);
+        if (!g_running) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 }
 
@@ -195,18 +206,30 @@ void on_local_playback(const player::Source& src, double pos, bool paused, bool 
     {
         std::lock_guard<std::mutex> lk(g_mtx);
         if (g_room.empty()) return;
-        if (now - g_remote_applied_at < 2.2) return;
+        if (now - g_remote_applied_at < 1.2) return;
 
         std::string sid = src.id.empty() ? src.url : src.id;
         if (sid.empty()) return;
 
-        bool changed = (sid != g_last_sent_id) || (paused != g_last_sent_paused);
-        if (!changed && !force && (now - g_last_sent_at < 4.5)) return;
+        double dt_sent = now - g_last_sent_at;
+        double expected_pos = g_last_sent_paused ? g_last_sent_pos : (g_last_sent_pos + dt_sent);
+        bool jumped = std::abs(pos - expected_pos) > 2.2;
+        bool changed = (sid != g_last_sent_id) || (paused != g_last_sent_paused) || jumped;
+        if (!changed && !force && dt_sent < 3.0) return;
 
         g_last_sent_id = sid;
         g_last_sent_paused = paused;
+        g_last_sent_pos = pos;
         g_last_sent_at = now;
         if (!src.title.empty()) g_media_title = src.title;
+
+        std::string referer;
+        for (const auto& h : src.headers) {
+            if (animesama::txt::lower(h.first) == "referer") {
+                referer = h.second;
+                break;
+            }
+        }
 
         room = g_room;
         sender = g_sender;
@@ -220,9 +243,11 @@ void on_local_playback(const player::Source& src, double pos, bool paused, bool 
         json_object_set_new(obj, "image", json_string(src.artwork.c_str()));
         json_object_set_new(obj, "extra", json_string(src.extra.c_str()));
         json_object_set_new(obj, "url", json_string(src.url.c_str()));
+        json_object_set_new(obj, "referer", json_string(referer.c_str()));
         json_object_set_new(obj, "pos", json_real(pos));
         json_object_set_new(obj, "paused", json_boolean(paused));
         json_object_set_new(obj, "has_video", json_boolean(has_video));
+        json_object_set_new(obj, "chunked", json_boolean(src.chunked_http));
         char* dumped = json_dumps(obj, JSON_COMPACT);
         payload_str = dumped ? dumped : "{}";
         if (dumped) free(dumped);
@@ -243,4 +268,3 @@ bool poll_event(SyncEvent& out) {
 }
 
 }  // namespace watchtogether
-

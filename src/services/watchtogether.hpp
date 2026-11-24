@@ -17,9 +17,11 @@ struct SyncEvent {
     std::string image;
     std::string extra;
     std::string url;
+    std::string referer;
     double pos = 0.0;
     bool paused = false;
     bool has_video = true;
+    bool chunked = false;
 };
 
 bool active();
