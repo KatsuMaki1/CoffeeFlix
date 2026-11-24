@@ -31,6 +31,7 @@
 #include "screens/widgets.hpp"
 #include "services/jellyfin.hpp"
 #include "services/lastfm.hpp"
+#include "services/mal.hpp"
 #include "services/navidrome.hpp"
 #include "services/yt_account.hpp"
 #include "services/yt_recs.hpp"
@@ -914,6 +915,56 @@ public:
                 bool on = lastfm::enabled();
                 if (toggle_row(iid, Rect(x0, top, w, 64), "Scrobbling Last.fm", nullptr, &on, g)) {
                     lastfm::set_enabled(on);
+                }
+                track(iid, top, 64);
+            }
+            {
+                Id iid = id(g, "mal_cid");
+                float top = row_h(64);
+                std::string cid = mal::client_id();
+                if (value_row(iid, Rect(x0, top, w, 64), "MyAnimeList Client ID",
+                              cid.empty() ? tr("Not set") : "********", ic::TV, g)) {
+                    prompt_text("MyAnimeList Client ID", cid, "Client ID (pour refresh token)", [](std::string new_id) {
+                        mal::set_client_id(new_id);
+                        toast("Client ID MyAnimeList enregistre", ic::CHECK_CIRCLE);
+                    });
+                }
+                track(iid, top, 64);
+            }
+            {
+                Id iid = id(g, "mal");
+                float top = row_h(64);
+                std::string u = mal::username();
+                std::string v = mal::signed_in() ? u : tr("Not connected");
+                if (value_row(iid, Rect(x0, top, w, 64), "MyAnimeList", v.c_str(), ic::TV, g)) {
+                    if (mal::signed_in()) {
+                        mal::sign_out();
+                        toast("Deconnecte de MyAnimeList", ic::INFO);
+                    } else {
+                        prompt_text("MyAnimeList Access Token", "", "Bearer Access Token", [](std::string access) {
+                            prompt_text("MyAnimeList Refresh Token (optionnel)", "", "Refresh Token",
+                                        [access](std::string refresh) {
+                                            std::string err;
+                                            if (mal::authenticate(access, refresh, err)) {
+                                                toast(util::fmt("Connecte a MyAnimeList (%s)", mal::username().c_str()),
+                                                      ic::CHECK_CIRCLE);
+                                            } else {
+                                                toast(err.empty() ? "Connexion MyAnimeList echouee" : err,
+                                                      ic::ERROR_OUTLINE);
+                                            }
+                                        },
+                                        true);
+                        }, true);
+                    }
+                }
+                track(iid, top, 64);
+            }
+            if (mal::signed_in()) {
+                Id iid = id(g, "mal_on");
+                float top = row_h(64);
+                bool on = mal::enabled();
+                if (toggle_row(iid, Rect(x0, top, w, 64), "Sync MyAnimeList", nullptr, &on, g)) {
+                    mal::set_enabled(on);
                 }
                 track(iid, top, 64);
             }

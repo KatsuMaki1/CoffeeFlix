@@ -47,6 +47,7 @@ extern "C" {
 #include "player/smb_io.hpp"
 #include "player/subtitles.hpp"
 #include "services/lastfm.hpp"
+#include "services/mal.hpp"
 #include "services/smb.hpp"
 
 // The Wii U build uses FFmpeg-wiiu (FFmpeg 4.3). The desktop preview uses the system FFmpeg, which
@@ -2030,6 +2031,9 @@ void report_progress(Session& s, bool force) {
     if (!s.has_video && s.has_audio && !s.live) {
         lastfm::on_playback(s.src.id.empty() ? s.src.url : s.src.id, s.src.title, s.src.subtitle, pos, s.duration,
                             s.state == PAUSED);
+    }
+    if (s.has_video && !s.live && !s.src.service.empty()) {
+        mal::on_progress(s.src.service, s.src.id, s.src.title, s.src.subtitle, pos, s.duration);
     }
 }
 
