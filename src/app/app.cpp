@@ -134,30 +134,30 @@ void draw_rail() {
     for (const RailEntry& e : RAIL)
         if (section_visible(e.s) || e.s == SEC_SETTINGS) shown.push_back(&e);
     int n = (int)shown.size();
-    // A phone is too short for the whole column at a size a finger can hit: the entries scroll under the logo
-    // (drag them, or move the focus), with Settings the last of them.
-    const bool phone = platform::is_phone();
-    constexpr float PHONE_TOP = 100, PHONE_STEP = 58;
-    static float phone_fa = 0, phone_fb = 0, phone_scroll = 0;
-    static bool phone_focus = false;
+    // When there are too many entries for comfortable 56px spacing (phones or expanded services),
+    // scroll the rail column under the logo with drag/focus follow.
+    constexpr float RAIL_TOP = 108, RAIL_STEP = 56;
+    const bool scroll_rail = platform::is_phone() || (RAIL_TOP + 6 + n * RAIL_STEP > H - 20);
+    static float rail_fa = 0, rail_fb = 0, rail_scroll = 0;
+    static bool rail_focus = false;
     bool focus_now = false;
-    if (phone) {
-        const float content = 12 + n * PHONE_STEP, view = H - PHONE_TOP;
-        scroll_drag(id("rail_scroll"), Rect(0, PHONE_TOP, w + 40, view), true, content, view);
-        phone_scroll = scroll_follow(id("rail_scroll"), phone_fa, phone_fb, view, content, 30, phone_focus);
-        gfx::push_clip(Rect(0, PHONE_TOP, w + 60, view));
+    if (scroll_rail) {
+        const float content = 12 + n * RAIL_STEP, view = H - RAIL_TOP;
+        scroll_drag(id("rail_scroll"), Rect(0, RAIL_TOP, w + 40, view), true, content, view);
+        rail_scroll = scroll_follow(id("rail_scroll"), rail_fa, rail_fb, view, content, 30, rail_focus);
+        gfx::push_clip(Rect(0, RAIL_TOP, w + 60, view));
     }
-    float y = phone ? PHONE_TOP + 6 - phone_scroll : 124;
-    const float step = phone ? PHONE_STEP : std::min(54.0f, (H - 124 - 84 - 24 - 50) / std::max(1, n - 2));
+    float y = scroll_rail ? RAIL_TOP + 6 - rail_scroll : 124;
+    const float step = scroll_rail ? RAIL_STEP : std::min(54.0f, (H - 124 - 84 - 24 - 50) / std::max(1, n - 2));
     for (int i = 0; i < n; i++) {
         const RailEntry& e = *shown[i];
         const bool grownups = kids && e.s == SEC_SETTINGS;
         const int icon = grownups ? ic::LOCK : e.icon;
         const char* label = grownups ? tr("Grown-ups") : tr(e.label);
-        if (e.s == SEC_SETTINGS && !phone) y = H - 84;
+        if (e.s == SEC_SETTINGS && !scroll_rail) y = H - 84;
         Rect r(14, y, w - 28, 50);
         Item it = focusable(rail_id(e.s), r, g_rail_group, F_NO_MEMORY | F_SIDE_ENTRY | F_WRAP);
-        if (phone && it.focused) { focus_now = true; phone_fa = y - 6 + phone_scroll - PHONE_TOP; phone_fb = y + 56 + phone_scroll - PHONE_TOP; }
+        if (scroll_rail && it.focused) { focus_now = true; rail_fa = y - 6 + rail_scroll - RAIL_TOP; rail_fb = y + 56 + rail_scroll - RAIL_TOP; }
         if (it.focused) g_focus_rail_request = false;
         if (it.clicked) {
             if (grownups) request_grownups();
@@ -184,9 +184,9 @@ void draw_rail() {
         }
         y += step;
     }
-    if (phone) {
+    if (scroll_rail) {
         gfx::pop_clip();
-        phone_focus = focus_now;
+        rail_focus = focus_now;
     }
 }
 

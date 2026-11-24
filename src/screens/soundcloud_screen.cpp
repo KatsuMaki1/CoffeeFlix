@@ -35,14 +35,38 @@ public:
         page_.begin(id(g, "page"));
         float y = page_.y(48);
 
-        text::draw_fit(font::headline, x0, y, W - x0 - 60, "SoundCloud", t.text);
+        text::draw_fit(font::headline, x0, y, W - x0 - 300, "SoundCloud", t.text);
+        std::string acc_label = sc::signed_in() ? sc::username() : "Connexion";
+        float bw = std::min(260.0f, std::max(150.0f, measure_button(acc_label.c_str(), ic::PEOPLE)));
+        if (button(id(g, "account"), Rect(W - 60 - bw, y, bw, 44), acc_label.c_str(), ic::PEOPLE, BTN_NORMAL, g)) {
+            if (sc::signed_in()) {
+                sc::sign_out();
+                toast("Deconnecte de SoundCloud", ic::INFO);
+                if (kind_ == "likes") {
+                    kind_ = "trending";
+                    load_charts();
+                }
+            } else {
+                prompt_text("Profil SoundCloud", "", "Pseudo ou URL (ex: soundcloud.com/pseudo)", [this](std::string u) {
+                    std::string err;
+                    if (sc::sign_in_username(u, err)) {
+                        toast(util::fmt("Connecte: %s", sc::username().c_str()), ic::CHECK_CIRCLE);
+                        kind_ = "likes";
+                        query_.clear();
+                        load_charts();
+                    } else {
+                        toast(err.empty() ? "Profil introuvable" : err, ic::ERROR_OUTLINE);
+                    }
+                });
+            }
+        }
         y += 58;
 
-        const char* kinds[] = {"trending", "top"};
-        const char* labels[] = {"Tendances", "Top Charts"};
+        const char* kinds[] = {"trending", "top", "likes"};
+        const char* labels[] = {"Tendances", "Top Charts", "Mes Likes"};
         Id kg = id(g, "kinds");
         float px = x0;
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < 3; i++) {
             float cw = std::max(130.0f, text::measure(font::body_bold, labels[i]) + 36.0f);
             if (chip(id(kg, (int64_t)i), Rect(px, y, cw, 40), labels[i], kind_ == kinds[i] && query_.empty(), kg)) {
                 kind_ = kinds[i];
@@ -108,10 +132,15 @@ private:
         loading_ = true;
         std::string k = kind_;
         scope_.reset();
-        scope_.run<sc::TrackList>([k] { return sc::charts(k); }, [this](sc::TrackList res) {
-            list_ = std::move(res);
-            loading_ = false;
-        });
+        scope_.run<sc::TrackList>(
+            [k] {
+                if (k == "likes") return sc::user_likes();
+                return sc::charts(k);
+            },
+            [this](sc::TrackList res) {
+                list_ = std::move(res);
+                loading_ = false;
+            });
     }
 
     void run_search() {

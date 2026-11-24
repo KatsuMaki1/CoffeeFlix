@@ -26,6 +26,12 @@ struct TrackList {
 
 TrackList charts(const std::string& kind = "trending");
 TrackList search(const std::string& query);
+TrackList user_likes();
+
+bool signed_in();
+std::string username();
+bool sign_in_username(const std::string& user_or_url, std::string& err);
+void sign_out();
 
 player::Source make_source(const Track& t);
 
