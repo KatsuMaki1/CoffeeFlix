@@ -33,6 +33,7 @@
 #include "platform/platform.hpp"
 #include "screens/screens.hpp"
 #include "screens/youtube_common.hpp"
+#include "services/cast_receiver.hpp"
 #include "screens/widgets.hpp"
 #include "ui/ui.hpp"
 #include "app/ambient.hpp"
@@ -87,6 +88,7 @@ const RailEntry RAIL[] = {
     {SEC_STREAMSDL, ic::VIDEO_LIBRARY, "StreamsDL"},
     {SEC_FREETV, ic::LIVE_TV, "TV & Freebox"},
     {SEC_WATCHTOGETHER, ic::PEOPLE, "WatchTogether"},
+    {SEC_CAST, ic::CAST, "Cast TV"},
     {SEC_JELLYFIN, ic::VIDEO_LIBRARY, "Jellyfin"},
     {SEC_NAVIDROME, ic::LIBRARY_MUSIC, "Navidrome"},
     {SEC_TWITCH, ic::LIVE_TV, "Twitch"},
@@ -811,6 +813,7 @@ int run(int, char**) {
     ui::set_accent((int)store::get_int("accent", 0));
     g_rail_group = ui::id("rail");
     updater::init();
+    cast_receiver::start();
 #ifdef __ANDROID__
     {  // a coffeeflix.json copied over from the Wii U (Receive files, or adb push into the media folder)
         const auto imported = settings_import::run();
@@ -916,6 +919,7 @@ int run(int, char**) {
         }
         player::update();
         screens::poll_watchtogether();
+        screens::poll_cast_receiver();
         {   // the sleep timer: stops what plays, with the sound fading out before, or at the end of this one
             const bool ended = player::state() == player::ENDED;
             if (!ended) sleep_timer::item_left();
@@ -963,6 +967,7 @@ int run(int, char**) {
     exit_watchdog::arm(CLOSE_DEADLINE);
     const Closing closing;
     closing.step("updater and mini player");
+    cast_receiver::stop();
     updater::stop();
     mini_player::shutdown();
     g_dead.clear();
