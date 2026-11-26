@@ -36,6 +36,7 @@ std::mutex g_mtx;
 std::string g_pairing_code;
 std::string g_connected_device;
 std::deque<Command> g_queue;
+LiveState g_live_state;
 
 std::atomic<bool> g_running{false};
 std::atomic<bool> g_stop{false};
@@ -476,6 +477,53 @@ void http_loop() {
                 push_cmd(std::move(c));
             }
             send_http(cfd, "201 Created", "text/plain", "");
+        } else if (path == "/api/state" && method == "GET") {
+            LiveState st;
+            {
+                std::lock_guard<std::mutex> lk(g_mtx);
+                st = g_live_state;
+            }
+            json_t* obj = json_object();
+            json_object_set_new(obj, "started", json_boolean(st.started));
+            json_object_set_new(obj, "paused", json_boolean(st.paused));
+            json_object_set_new(obj, "live", json_boolean(st.live));
+            json_object_set_new(obj, "has_next", json_boolean(st.has_next));
+            json_object_set_new(obj, "has_prev", json_boolean(st.has_prev));
+            json_object_set_new(obj, "pos", json_real(st.pos));
+            json_object_set_new(obj, "duration", json_real(st.duration));
+            json_object_set_new(obj, "volume", json_integer(st.volume));
+            json_object_set_new(obj, "title", json_string(st.title.c_str()));
+            json_object_set_new(obj, "subtitle", json_string(st.subtitle.c_str()));
+            char* dumped = json_dumps(obj, JSON_COMPACT);
+            std::string js = dumped ? dumped : "{}";
+            if (dumped) free(dumped);
+            json_decref(obj);
+            send_http(cfd, "200 OK", "application/json", js);
+        } else if (path == "/manifest.json" && method == "GET") {
+            std::string man =
+                "{\"name\":\"CoffeeFlix Remote\",\"short_name\":\"CoffeeFlix\",\"start_url\":\"/\","
+                "\"display\":\"standalone\",\"background_color\":\"#0b0b12\",\"theme_color\":\"#f59e0b\"}";
+            send_http(cfd, "200 OK", "application/manifest+json", man);
+        } else if (path == "/api/cmd" && method == "POST") {
+            std::string cmd = form_param(body, "cmd");
+            std::string val = form_param(body, "val");
+            if (cmd == "toggle") push_cmd({Command::TOGGLE_PAUSE, "", "", 0.0});
+            else if (cmd == "play") push_cmd({Command::PLAY, "", "", 0.0});
+            else if (cmd == "pause") push_cmd({Command::PAUSE, "", "", 0.0});
+            else if (cmd == "next") push_cmd({Command::NEXT, "", "", 0.0});
+            else if (cmd == "prev") push_cmd({Command::PREV, "", "", 0.0});
+            else if (cmd == "stop") push_cmd({Command::STOP, "", "", 0.0});
+            else if (cmd == "seek_rel") push_cmd({Command::SEEK_REL, "", "", std::atof(val.c_str())});
+            else if (cmd == "seek_abs") push_cmd({Command::SEEK, "", "", std::atof(val.c_str())});
+            else if (cmd == "volume") push_cmd({Command::VOLUME, "", "", std::atof(val.c_str())});
+            else if (cmd == "nav") push_cmd({Command::NAV, val, "", 0.0});
+            else if (cmd == "section") push_cmd({Command::SECTION, val, "", 0.0});
+            else if (cmd == "cast" && !val.empty()) {
+                std::string yid = extract_yt_id(val);
+                if (!yid.empty()) push_cmd({Command::PLAY_YOUTUBE, yid, "", 0.0});
+                else push_cmd({Command::PLAY_URL, val, "Cast Web", 0.0});
+            }
+            send_http(cfd, "200 OK", "application/json", "{\"ok\":true}");
         } else if (path == "/cast" && method == "POST") {
             std::string u = form_param(body, "url");
             std::string action = form_param(body, "action");
@@ -491,22 +539,57 @@ void http_loop() {
             send_http(cfd, "303 See Other", "text/plain", "", "Location: /\r\n");
         } else {
             std::string html =
-                "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
-                "<title>CoffeeFlix Cast</title>"
-                "<style>body{background:#111;color:#fff;font-family:sans-serif;padding:24px;max-width:480px;margin:auto}"
-                "input,button{width:100%;padding:14px;margin:8px 0;border-radius:10px;border:none;font-size:16px}"
-                "input{background:#222;color:#fff}button{background:#f59e0b;color:#111;font-weight:bold;cursor:pointer}"
-                ".row{display:flex;gap:8px}.row form{flex:1}</style></head><body>"
-                "<h2>CoffeeFlix Cast (Wii U)</h2>"
-                "<form method='POST' action='/cast'>"
-                "<input name='url' placeholder='Lien YouTube ou URL MP4/M3U8...' required>"
-                "<button type='submit'>Caster sur la Wii U</button></form>"
-                "<div class='row'>"
-                "<form method='POST' action='/cast'><input type='hidden' name='action' value='prev'><button>Prev</button></form>"
-                "<form method='POST' action='/cast'><input type='hidden' name='action' value='pause'><button>Pause</button></form>"
-                "<form method='POST' action='/cast'><input type='hidden' name='action' value='play'><button>Play</button></form>"
-                "<form method='POST' action='/cast'><input type='hidden' name='action' value='next'><button>Next</button></form>"
-                "</div></body></html>";
+                "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>"
+                "<meta name='theme-color' content='#0b0b12'>"
+                "<link rel='manifest' href='/manifest.json'>"
+                "<title>CoffeeFlix Remote</title>"
+                "<style>"
+                "*{box-sizing:border-box}body{background:#0b0b12;color:#f4f4f8;font-family:system-ui,-apple-system,sans-serif;margin:0;padding:16px;max-width:480px;margin:auto}"
+                ".card{background:#171724;border-radius:16px;padding:16px;margin-bottom:14px}"
+                "h2{margin:0 0 6px;font-size:18px;color:#f59e0b}small{color:#9ca3af}"
+                ".row{display:flex;gap:8px;margin-top:10px}button{background:#252538;color:#fff;border:none;border-radius:12px;padding:12px;font-size:15px;font-weight:600;flex:1;cursor:pointer}"
+                "button:active{transform:scale(0.96);background:#f59e0b;color:#111}.pri{background:#f59e0b;color:#111}"
+                "input[type=text]{width:100%;padding:12px;border-radius:12px;border:none;background:#252538;color:#fff;font-size:15px;margin-bottom:8px}"
+                "input[type=range]{width:100%;accent-color:#f59e0b;margin:8px 0}"
+                ".dpad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:240px;margin:10px auto}"
+                ".tabs{display:flex;flex-wrap:wrap;gap:6px}.tabs button{flex:0 0 calc(33.3% - 4px);font-size:13px;padding:10px 6px}"
+                "</style></head><body>"
+                "<div class='card'><h2 id='tt'>CoffeeFlix Wii U</h2><small id='st'>En attente...</small>"
+                "<input id='sk' type='range' min='0' max='100' value='0' onchange='cmd(\"seek_abs\",this.value)'>"
+                "<div class='row'><button onclick='cmd(\"prev\")'>Prev</button><button onclick='cmd(\"seek_rel\",-15)'>-15s</button>"
+                "<button class='pri' id='pp' onclick='cmd(\"toggle\")'>Play/Pause</button><button onclick='cmd(\"seek_rel\",30)'>+30s</button>"
+                "<button onclick='cmd(\"next\")'>Next</button></div>"
+                "<div class='row'><button onclick='cmd(\"seek_rel\",85)'>+85s (OP)</button><button onclick='cmd(\"stop\")'>Stop</button></div>"
+                "<div style='margin-top:10px'><small>Volume</small><input id='vl' type='range' min='0' max='100' value='100' oninput='cmd(\"volume\",this.value)'></div></div>"
+                "<div class='card'><h2>Telecommande</h2>"
+                "<div class='dpad'><div></div><button onclick='cmd(\"nav\",\"up\")'>&#9650;</button><div></div>"
+                "<button onclick='cmd(\"nav\",\"left\")'>&#9664;</button><button class='pri' onclick='cmd(\"nav\",\"a\")'>A / OK</button><button onclick='cmd(\"nav\",\"right\")'>&#9654;</button>"
+                "<button onclick='cmd(\"nav\",\"menu\")'>Menu</button><button onclick='cmd(\"nav\",\"down\")'>&#9660;</button><button onclick='cmd(\"nav\",\"b\")'>B / Retour</button></div></div>"
+                "<div class='card'><h2>Caster une video / URL</h2>"
+                "<input id='cu' type='text' placeholder='Lien YouTube ou URL .mp4 / .m3u8...'>"
+                "<button class='pri' style='width:100%' onclick='castUrl()'>Caster sur la Wii U</button></div>"
+                "<div class='card'><h2>Onglets rapides</h2><div class='tabs'>"
+                "<button onclick='cmd(\"section\",\"home\")'>Accueil</button>"
+                "<button onclick='cmd(\"section\",\"youtube\")'>YouTube</button>"
+                "<button onclick='cmd(\"section\",\"ytmusic\")'>YT Music</button>"
+                "<button onclick='cmd(\"section\",\"spotify\")'>Spotify</button>"
+                "<button onclick='cmd(\"section\",\"soundcloud\")'>SoundCloud</button>"
+                "<button onclick='cmd(\"section\",\"animesama\")'>Anime-Sama</button>"
+                "<button onclick='cmd(\"section\",\"mangadex\")'>MangaDex</button>"
+                "<button onclick='cmd(\"section\",\"freetv\")'>TV &amp; Freebox</button>"
+                "<button onclick='cmd(\"section\",\"watchtogether\")'>WatchTogether</button>"
+                "</div></div>"
+                "<script>"
+                "function cmd(c,v){fetch('/api/cmd',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'cmd='+encodeURIComponent(c)+'&val='+encodeURIComponent(v||'')});}"
+                "function castUrl(){var el=document.getElementById('cu');if(el.value){cmd('cast',el.value);el.value='';}}"
+                "setInterval(function(){fetch('/api/state').then(r=>r.json()).then(s=>{"
+                "document.getElementById('tt').textContent=s.started?(s.title||'Lecture en cours'):'CoffeeFlix Wii U';"
+                "document.getElementById('st').textContent=s.started?((s.subtitle||'')+' '+(s.paused?'(Pause)':'(Lecture)')):'Pret';"
+                "document.getElementById('pp').textContent=s.paused?'Play':'Pause';"
+                "var sk=document.getElementById('sk');if(s.duration>0){sk.max=Math.floor(s.duration);sk.value=Math.floor(s.pos);}"
+                "}).catch(()=>{});},1200);"
+                "</script></body></html>";
             send_http(cfd, "200 OK", "text/html; charset=utf-8", html);
         }
         close(cfd);
@@ -563,6 +646,11 @@ void refresh_pairing_code() {
         std::string sid, ltok;
         ensure_lounge_credentials(sid, ltok, true);
     }).detach();
+}
+
+void update_state(const LiveState& st) {
+    std::lock_guard<std::mutex> lk(g_mtx);
+    g_live_state = st;
 }
 
 bool poll_command(Command& out) {

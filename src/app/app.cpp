@@ -919,7 +919,7 @@ int run(int, char**) {
         }
         player::update();
         screens::poll_watchtogether();
-        screens::poll_cast_receiver();
+        screens::poll_cast_receiver(in);
         {   // the sleep timer: stops what plays, with the sound fading out before, or at the end of this one
             const bool ended = player::state() == player::ENDED;
             if (!ended) sleep_timer::item_left();

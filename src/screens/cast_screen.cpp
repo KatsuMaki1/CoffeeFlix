@@ -1,7 +1,9 @@
 // Cast Receiver screen: YouTube TV Pairing Code (official Cast button) + Web Cast QR code & DIAL status.
 #include <string>
 
+#include "audio/mixer.hpp"
 #include "core/i18n.hpp"
+#include "core/input.hpp"
 #include "core/qr.hpp"
 #include "core/util.hpp"
 #include "gfx/gfx.hpp"
@@ -102,7 +104,20 @@ private:
 
 std::unique_ptr<app::Screen> make_cast() { return std::make_unique<CastScreen>(); }
 
-void poll_cast_receiver() {
+void poll_cast_receiver(Input& in) {
+    cr::LiveState st;
+    st.started = player::started();
+    st.paused = (player::state() == player::PAUSED);
+    st.live = player::live();
+    st.has_next = player::has_next();
+    st.has_prev = player::has_previous();
+    st.pos = player::position();
+    st.duration = player::duration();
+    const player::Source& ps = player::source();
+    st.title = ps.title;
+    st.subtitle = ps.subtitle;
+    cr::update_state(st);
+
     cr::Command cmd;
     if (!cr::poll_command(cmd)) return;
 
@@ -130,8 +145,14 @@ void poll_cast_receiver() {
         case cr::Command::PAUSE:
             if (player::started()) player::set_paused(true);
             break;
+        case cr::Command::TOGGLE_PAUSE:
+            if (player::started()) player::toggle_pause();
+            break;
         case cr::Command::SEEK:
             if (player::started()) player::seek(cmd.position);
+            break;
+        case cr::Command::SEEK_REL:
+            if (player::started()) player::seek_relative(cmd.position);
             break;
         case cr::Command::NEXT:
             if (player::has_next()) player::next();
@@ -142,6 +163,35 @@ void poll_cast_receiver() {
         case cr::Command::STOP:
             player::close();
             break;
+        case cr::Command::VOLUME: {
+            float v = (float)(cmd.position / 100.0);
+            if (v < 0.0f) v = 0.0f;
+            if (v > 1.0f) v = 1.0f;
+            audio::set_media_volume(v);
+            break;
+        }
+        case cr::Command::NAV: {
+            if (cmd.target == "up") { in.pressed |= bit(BTN_UP); in.repeat |= bit(BTN_UP); }
+            else if (cmd.target == "down") { in.pressed |= bit(BTN_DOWN); in.repeat |= bit(BTN_DOWN); }
+            else if (cmd.target == "left") { in.pressed |= bit(BTN_LEFT); in.repeat |= bit(BTN_LEFT); }
+            else if (cmd.target == "right") { in.pressed |= bit(BTN_RIGHT); in.repeat |= bit(BTN_RIGHT); }
+            else if (cmd.target == "a") in.pressed |= bit(BTN_A);
+            else if (cmd.target == "b") in.pressed |= bit(BTN_B);
+            else if (cmd.target == "menu") app::focus_rail();
+            break;
+        }
+        case cr::Command::SECTION: {
+            if (cmd.target == "home") app::open_section(app::SEC_HOME);
+            else if (cmd.target == "youtube") app::open_section(app::SEC_YOUTUBE);
+            else if (cmd.target == "ytmusic") app::open_section(app::SEC_YTMUSIC);
+            else if (cmd.target == "spotify") app::open_section(app::SEC_SPOTIFY);
+            else if (cmd.target == "soundcloud") app::open_section(app::SEC_SOUNDCLOUD);
+            else if (cmd.target == "animesama") app::open_section(app::SEC_ANIMESAMA);
+            else if (cmd.target == "mangadex") app::open_section(app::SEC_MANGADEX);
+            else if (cmd.target == "freetv") app::open_section(app::SEC_FREETV);
+            else if (cmd.target == "watchtogether") app::open_section(app::SEC_WATCHTOGETHER);
+            break;
+        }
         default:
             break;
     }
